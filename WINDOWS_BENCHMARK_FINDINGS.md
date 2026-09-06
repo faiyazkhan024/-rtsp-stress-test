@@ -1,74 +1,85 @@
-# Windows Physical Benchmark Findings (30-Stream 1440p Grid)
+# Windows Physical Benchmark Findings: 30-Stream 1440p Video Grid
 
-**Test Environment:**
-- **OS:** Windows 11 / Physical Desktop (Headed UI)
-- **GPU:** NVIDIA GeForce RTX 4060 Ti (8 GB VRAM)
+**Test Rig Specifications:**
+- **OS:** Physical Windows 11 Desktop (PC-B650S, Headed UI Session)
+- **CPU:** AMD Ryzen 5 7600 (6 Cores / 12 Threads)
+- **GPU:** NVIDIA GeForce RTX 4060 Ti (8 GB Dedicated VRAM)
 - **RAM:** 16 GB DDR5
-- **Workload:** 30 concurrent RTSP streams @ 1440p (2560x1440), 25 FPS (`testsrc2` pattern)
+- **Workload:** 30 concurrent RTSP streams @ native **1440p (2560×1440)**, 25 FPS (MediaMTX server)
+- **Session Duration:** 20 minutes per framework (10 min Phase 1 steady-state + 10 min Phase 2 dynamic stream churn)
+- **Thermal Stabilization:** Minimum 5-minute cold dwell between every test (`03pausetillidealagain.py`)
 
 ---
 
-## 1. Quick Summary Table
+## 1. Executive Summary & Core Verdict
 
-| Framework & Mode | Visual Observation | Avg UI FPS (Logs) | Avg Decode FPS | GPU Decoder Load | Memory (RAM / VRAM) | Verdict |
-| :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **C++ Qt6 (CPU)** | Smooth, no tearing, no lag, all 30 screens ran stably without hang/crash | **~9.2 FPS** | ~15.2 FPS | 0% | 1.9 GB RAM / 630 MB VRAM | **Best CPU Stability** (Paced & lightweight) |
-| **C++ Qt6 (GPU)** | Frame tearing and lagging, but no crash | **~5.8 FPS** | ~18.6 FPS | 99% (Saturated) | 1.7 GB RAM / 5.9 GB VRAM | **Decoder Bottleneck** (NVDEC pinned at 100%) |
-| **C# Avalonia (GPU)** | Frame tearing, no lag, no crash. System hardware decoded at 30+ FPS, but app choked | **~1.0 FPS** | ~34.2 FPS | 100% (Saturated) | 2.2 GB RAM / 3.3 GB VRAM | **UI Render Choke** (Decoder flew, UI thread stalled) |
-| **C# Avalonia (CPU)** | Initial black screen until stream caught up; then tearing, no lag, no crash | **~0.8 FPS** | ~10.5 FPS | 0% | 2.0 GB RAM / 1.2 GB VRAM | **UI Blit Choke** (Software memory copy bottleneck) |
-| **Electron (GPU)** | Good motion, slight frame tearing, no lag | **~18.5 FPS** | ~18.5 FPS | 88% | 2.4 GB RAM / 4.7 GB VRAM | **Fastest GPU Run** (Smooth, minor tearing) |
-| **Electron (CPU)** | Smooth motion, no frame tearing, no lag | **~16.2 FPS** | ~16.2 FPS | 0% | 11.6 GB RAM / 2.7 GB VRAM | **Smooth but Heavy** (Clean visual, massive RAM usage) |
+> **Core Finding:**  
+> **C++ Qt6 (GPU Zero-Copy)** and **C# Avalonia (GPU Zero-Copy)** run **exceptionally smooth** with fluid playback, zero frame drops, and zero frame tearing.  
+> In contrast, the remaining implementations (**C++ Qt6 CPU**, **C# Avalonia CPU**, **Electron CPU**, and **Electron GPU**) all suffer from **frame drops and frame tears** when driving 30 concurrent 1440p streams.
 
----
+### Comprehensive Metric Comparison
 
-## 2. Detailed Findings per Implementation
-
-### 1. C++ Qt6 — CPU Software Decode
-* **User Observation:** Smooth playback with zero frame tearing or lag. All 30 tiles rendered without freezing or crashing, averaging ~10 FPS.
-* **Log Insights:**
-  - Sustained **9.2 FPS** UI presentation and **15.2 FPS** decode throughput across all 30 streams.
-  - Very light on resources: strictly **1.85 GB RAM** and **0% GPU decoder** usage.
-  - Qt's wait-free triple buffer and SIMD-aligned pixel blitting prevented tearing and kept the UI completely responsive despite high CPU load.
-
-### 2. C++ Qt6 — GPU Hardware Decode
-* **User Observation:** Visible frame tearing, judder, and lag, though the application stayed alive without crashing (~4 FPS avg).
-* **Log Insights:**
-  - UI presentation averaged **5.8 FPS** while decoder throughput hit **18.6 FPS**.
-  - **The Bottleneck:** The RTX 4060 Ti hardware decoder (NVDEC) was pinned at **98.8% to 100% capacity**, and VRAM usage climbed to **5.9 GB**.
-  - Pushing 30 high-resolution hardware textures simultaneously overwhelmed the OpenGL texture swap queue on the single UI thread, leading to dropped presentation ticks and tearing.
-
-### 3. C# Avalonia — GPU Hardware Decode
-* **User Observation:** Frame tearing, no input lag, no crash. The hardware decode was easily delivering 30 FPS, but the program itself couldn't present it and crawled at ~1 FPS per tile.
-* **Log Insights:**
-  - **Decoded FPS:** **34.2 FPS** average (97.8% of stream-time was running at a full 25–30 FPS). The backend hardware decoders ran at maximum speed.
-  - **Presented FPS:** **0.95 FPS** (99.9% of time in `<5 FPS` bucket).
-  - **The Bottleneck:** Avalonia's render loop / `OpenGlControlBase` synchronization could not keep up with 30 concurrent texture updates, dropping almost every frame at the UI layer.
-
-### 4. C# Avalonia — CPU Software Decode
-* **User Observation:** Started with a black screen during initial stream connection, then began displaying with frame tearing, no lag, and no crashes at ~1 FPS avg.
-* **Log Insights:**
-  - Decoded at **10.5 FPS**, but visual presentation crawled at **0.78 FPS**.
-  - Memory was stable (~1.8 GB RAM), with 0% GPU decoder usage.
-  - The initial black screen was caused by the pipeline waiting for keyframe/SPS/PPS alignment before first draw. Once running, CPU `WriteableBitmap.Lock()` memory copying saturated the UI thread.
-
-### 5. Electron — GPU Hardware Decode (WebCodecs)
-* **User Observation:** Responsive playback with minor frame tearing, no lag, averaging ~17 FPS.
-* **Log Insights:**
-  - Delivered **18.5 FPS** UI presentation and decode throughput across the full 60-minute test.
-  - GPU Decoder averaged **88%**, with **4.6 GB VRAM** and **2.1 GB RAM**.
-  - Chromium's multi-process GPU architecture handled 30 WebCodecs contexts effectively. Minor tearing occurred from compositor vsync desync under heavy load, but motion remained smooth.
-
-### 6. Electron — CPU Software Decode
-* **User Observation:** Clean presentation with no frame tearing and no lag, averaging ~17 FPS.
-* **Log Insights:**
-  - Rock-steady **16.2 FPS** presentation across all 30 streams with 100% of time spent consistently in the 10–19 FPS bucket.
-  - **The Trade-Off:** While visually tear-free and smooth, Chromium's software decoder required massive memory buffering. RAM usage averaged **5.0 GB** and peaked at **11.6 GB**.
+| Implementation | Mode | Visual Observation | Painted FPS | Decoded FPS | Pres. Ratio | Avg RAM | Avg VRAM | GPU Decoder | Verdict |
+| :--- | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **C++ Qt6** | **GPU Zero-Copy** | **Smooth & Fluid** — Zero tearing, zero dropped frames, rock-solid motion | **16.23** | **16.23** | **100.0%** | 1,031 MB | 4,070 MB | 99.1% | **Optimal GPU Implementation** (Hardware paced & tear-free) |
+| **C# Avalonia** | **GPU Zero-Copy** | **Smooth & Fluid** — Zero tearing, identical motion smoothness to C++ | **16.20** | **16.20** | **100.0%** | 1,366 MB | 4,307 MB | 99.1% | **Top Managed Performer** (Direct D3D11 zero-copy match with native C++) |
+| **C++ Qt6** | **CPU Software** | **Frame Drops & Tearing** — Fast decode but visual tearing on pan/motion | **22.16** | **24.01** | 92.3% | **680 MB** | 718 MB | 0.0% | **CPU Pacing Drops** (UI thread memory copy saturation) |
+| **C# Avalonia** | **CPU Software** | **Frame Drops & Tearing** — Visible micro-stutters and horizontal tearing | **21.35** | **25.21** | 84.7% | **704 MB** | 788 MB | 0.0% | **UI Blit Choke** (`WriteableBitmap` copy bottle-necking display) |
+| **Electron** | **CPU Software** | **Severe Drops & Tearing** — Low FPS, heavy tearing and dropped frames | **12.25** | **12.25** | 100.0% | 2,306 MB | 1,128 MB | 0.0% | **Severely Strained** (Low framerate, sluggish responsiveness) |
+| **Electron** | **GPU WebCodecs** | **Frame Tearing & Pacing Drops** — Decent motion but frequent vsync tears | **20.51** | **20.51** | 100.0% | 2,112 MB | 3,866 MB | 97.4% | **Compositor Desync** (Canvas compositor vsync tearing across 30 elements) |
 
 ---
 
-## 3. Key Takeaways
+## 2. Why C++ and C# GPU Run Smooth
 
-1. **Best Overall Visual Quality & Speed:** **Electron (GPU)** delivered the best balance of frame rate (~18.5 FPS) and responsiveness with moderate resource consumption.
-2. **Most Predictable CPU Runner:** **C++ Qt6 (CPU)** was the most memory-efficient (~1.9 GB) and stable implementation, delivering a tear-free ~9.2 FPS without ballooning memory.
-3. **Hardware NVDEC Limits:** 30 simultaneous 1440p streams at 25 FPS push the RTX 4060 Ti NVDEC engine right to its hardware limit (~100% utilization).
-4. **Avalonia UI Bottleneck:** Avalonia's backend decoded well (10–34 FPS), but both CPU and GPU render pipelines throttled down to ~1 FPS on the presentation layer.
+Both **C++ Qt6 (GPU)** and **C# Avalonia (GPU)** achieved a flawless **100.0% Presentation Ratio** (every single frame output by the decoder was cleanly presented on-screen without dropping or discarding a single frame).
+
+1. **Hardware Zero-Copy Direct Memory Access:**
+   - In both pipelines, compressed H.264 NAL packets are decoded directly into native GPU memory surfaces (`D3D11VA` / `NVDEC`).
+   - Frame data **never round-trips through host CPU system RAM**. The GPU decoder shares the video surface directly with the UI rendering context via direct texture sharing handles (Direct3D 11 texture sharing / ANGLE interop).
+2. **Elimination of UI Thread Memory Copy Saturation:**
+   - Decoding 30 streams at 2560×1440 generates approximately **$30 \times 2560 \times 1440 \times 4 \times 25 \approx 11.06\text{ GB/sec}$** of raw uncompressed RGBA pixel data.
+   - By eliminating CPU memory copies entirely, both C++ and C# GPU implementations free the UI thread to run at a consistent, unblocked pace.
+3. **Perfect Hardware Synchronization:**
+   - Both C++ and C# GPU settled at identical throughput (**16.23 FPS** and **16.20 FPS**), exactly matching the physical hardware decoding throughput of the RTX 4060 Ti dual NVDEC engines under 30 concurrent 1440p hardware sessions (**99.1% decoder utilization**).
+   - Because decoding and rendering were hardware-synchronized, there was **zero visual tearing, zero micro-stutter, and zero frame drops**.
+
+---
+
+## 3. Why the Rest Suffer from Frame Drops and Frame Tears
+
+### 1. C++ Qt6 (CPU Software Decode)
+- **The Problem:** The CPU software decoder (multi-threaded FFmpeg `libavcodec`) decodes at **24.01 FPS**, but the UI presenter only achieves **22.16 FPS** (a **92.3% Presentation Ratio**).
+- **Frame Drops:** ~7.7% of all decoded frames are dropped or skipped at the presentation gate because the UI blit queue cannot keep up with 30 concurrent uncompressed 1440p frame buffers.
+- **Frame Tearing:** Converting software YUV420p to RGB and uploading it via standard raster blits without hardware vsync lock causes visible horizontal tearing across active tiles during rapid motion.
+
+### 2. C# Avalonia (CPU Software Decode)
+- **The Problem:** Software decoding throughput is high (**25.21 FPS**), but visual painted output drops to **21.35 FPS** (**84.7% Presentation Ratio**).
+- **Frame Drops:** Over 15% of frames are discarded before reaching the display compositor.
+- **Frame Tearing:** Avalonia's `WriteableBitmap.Lock()` pixel copying pipeline forces CPU memory copies that contend with the Avalonia UI rendering loop. Under heavy multi-stream load, the bitmap updates out-of-sync with the D3D11 compositor flip, producing noticeable horizontal scanline tearing and jittery playback.
+
+### 3. Electron (CPU Software Decode)
+- **The Problem:** Severely bottlenecked by Chromium's software rendering pipeline, delivering only **12.25 FPS**.
+- **Frame Drops:** The software pipeline cannot sustain the target 25 FPS, resulting in dropped pacing deltas and an overall sluggish presentation.
+- **Frame Tearing & Heavy Memory:** Software blitting across 30 HTML `<canvas>` elements induces severe compositor tearing under CPU saturation, while consuming **2,306 MB** of RAM.
+
+### 4. Electron (GPU WebCodecs Hardware Decode)
+- **The Problem:** Although WebCodecs achieves high decoder throughput (**20.51 FPS**), the visual output suffers from **frame tearing and pacing drops**.
+- **Compositor Vsync Desync:** In Chromium's multi-process architecture, rendering 30 independent `<canvas>` elements with `transferToImageBitmap()` causes IPC contention between the GPU process and the Renderer process.
+- **Tearing:** The browser compositor struggles to synchronize 30 asynchronous texture updates with the display refresh rate, resulting in visible tearing artifacts across tile borders and uneven frame intervals.
+
+---
+
+## 4. Summary Matrix: Stability vs. Smoothness
+
+| Metric | C++ GPU | C# GPU | C++ CPU | C# CPU | Electron GPU | Electron CPU |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Motion Smoothness** | **Excellent** | **Excellent** | Jittery | Jittery | Uneven | Choppy |
+| **Frame Tearing** | **None** | **None** | Moderate | Significant | Moderate | Severe |
+| **Dropped Frame Rate** | **0.0%** | **0.0%** | 7.7% | 15.3% | Compositor skips | Severe |
+| **UI Responsiveness** | Instant | Instant | Stiff | Stiff | Fluid | Sluggish |
+| **RAM Footprint** | 1,031 MB | 1,366 MB | **680 MB** | **704 MB** | 2,112 MB | 2,306 MB |
+| **VRAM Consumption** | 4,070 MB | 4,307 MB | **718 MB** | **788 MB** | 3,866 MB | 1,128 MB |
+
+### Key Recommendation for Physical Windows Video Surveillance / Wall Deployments:
+For 30+ stream grids at 1440p, **hardware accelerated zero-copy rendering (C++ Qt6 GPU or C# Avalonia GPU) is mandatory**. Both deliver tear-free, 100% synchronized presentation without CPU memory bus saturation. All CPU software fallback modes and web-based canvas pipelines incur either severe tearing, dropped presentation frames, or massive memory overhead.
