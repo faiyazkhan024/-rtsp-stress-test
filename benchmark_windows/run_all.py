@@ -25,6 +25,11 @@ import sys
 import time
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parent
 LOG_DIR = ROOT_DIR / "logs"
@@ -66,7 +71,7 @@ def git_commit_and_push(script_name: str) -> bool:
             text=True,
             check=False,
         )
-        print(f"[✓] Git commit:\n{res_commit.stdout.strip()}")
+        print(f"[OK] Git commit:\n{res_commit.stdout.strip()}")
 
         push_res = subprocess.run(
             ["git", "push", "personal", "windows-11/pc-b650s"],
@@ -78,7 +83,7 @@ def git_commit_and_push(script_name: str) -> bool:
             check=False,
         )
         if push_res.returncode == 0:
-            print(f"[✓] Git push succeeded to personal/windows-11/pc-b650s:\n{push_res.stdout.strip() or push_res.stderr.strip()}")
+            print(f"[OK] Git push succeeded to personal/windows-11/pc-b650s:\n{push_res.stdout.strip() or push_res.stderr.strip()}")
             return True
         else:
             print(f"[!] Push to personal failed with code {push_res.returncode}. Attempting default git push...")
@@ -91,7 +96,7 @@ def git_commit_and_push(script_name: str) -> bool:
                 timeout=120.0,
                 check=False,
             )
-            print(f"[✓] Default git push:\n{fb.stdout.strip() or fb.stderr.strip()}")
+            print(f"[OK] Default git push:\n{fb.stdout.strip() or fb.stderr.strip()}")
             return fb.returncode == 0
     except Exception as e:
         print(f"[!] Git sync error: {e}")
