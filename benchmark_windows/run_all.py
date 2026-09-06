@@ -39,10 +39,71 @@ def run_step(script_name: str, extra_args: list[str] = None) -> bool:
     return res.returncode == 0
 
 
+def git_commit_and_push(script_name: str) -> bool:
+    """Stage newly archived benchmark logs, commit, and push to upstream branch."""
+    print(f"\n{'='*55}")
+    print(f" [*] GIT SYNC: Staging & pushing results for {script_name}...")
+    print(f"{'='*55}", flush=True)
+    try:
+        subprocess.run(["git", "add", "logs/"], cwd=str(ROOT_DIR), check=False)
+        staged = subprocess.run(
+            ["git", "diff", "--staged", "--name-only"],
+            cwd=str(ROOT_DIR),
+            stdout=subprocess.PIPE,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        if not staged:
+            print("[*] No newly archived logs to commit.")
+            return True
+
+        commit_msg = f"bench: physical windows benchmark metrics after {script_name}"
+        res_commit = subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=str(ROOT_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        print(f"[✓] Git commit:\n{res_commit.stdout.strip()}")
+
+        push_res = subprocess.run(
+            ["git", "push", "personal", "windows-11/pc-b650s"],
+            cwd=str(ROOT_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=120.0,
+            check=False,
+        )
+        if push_res.returncode == 0:
+            print(f"[✓] Git push succeeded to personal/windows-11/pc-b650s:\n{push_res.stdout.strip() or push_res.stderr.strip()}")
+            return True
+        else:
+            print(f"[!] Push to personal failed with code {push_res.returncode}. Attempting default git push...")
+            fb = subprocess.run(
+                ["git", "push"],
+                cwd=str(ROOT_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=120.0,
+                check=False,
+            )
+            print(f"[✓] Default git push:\n{fb.stdout.strip() or fb.stderr.strip()}")
+            return fb.returncode == 0
+    except Exception as e:
+        print(f"[!] Git sync error: {e}")
+        return False
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Master RTSP Benchmark Runner with Idle Stabilization (Headed UI)")
     parser.add_argument("--cool-mins", type=float, default=5.0, help="Cool-down minutes between runs (default: 5.0)")
     parser.add_argument("--quick-test", action="store_true", help="Dry run: runs each test for 1 minute to verify setup")
+    parser.add_argument("--git-push", action="store_true", default=True, help="Push to git after each test (default: True)")
+    parser.add_argument("--no-git-push", dest="git_push", action="store_false", help="Disable automatic git push after each test")
     parser.add_argument("--url", type=str, default="rtsp://127.0.0.1:8554/cam%d", help="RTSP target stream URL")
     parser.add_argument("--streams", type=int, default=30, help="Number of concurrent video tiles (default: 30)")
     parser.add_argument("--duration", type=float, default=None, help="Custom total test duration in minutes (e.g. 30)")
@@ -130,6 +191,9 @@ def main() -> None:
         success = run_step(script, s_args)
         if not success:
             print(f"[!] Warning: Step {script} returned non-zero code.")
+
+        if args.git_push and not is_pause and script not in ("00start_rtsp_server.py", "01baseline.py"):
+            git_commit_and_push(script)
 
     total_time = round((time.time() - start_all) / 60.0, 1)
     print("\n" + "=" * 60)

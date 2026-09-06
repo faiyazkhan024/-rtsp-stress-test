@@ -359,7 +359,7 @@ def kill_all_benchmark_processes() -> None:
     time.sleep(2.0)
 
 
-def archive_logs(framework: str, hardware_mode: str) -> Path:
+def archive_logs(framework: str, hardware_mode: str, watchdog_reason: Optional[str] = None) -> Path:
     """Move current benchmark log files to an archived subfolder."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     archive_dir = LOG_DIR / "archive" / f"{framework}_{hardware_mode}_{ts}"
@@ -374,6 +374,21 @@ def archive_logs(framework: str, hardware_mode: str) -> Path:
                 print(f"[✓] Archived {log_name} -> {dst.relative_to(ROOT_DIR)}")
             except Exception as exc:
                 print(f"[!] Warning archiving {log_name}: {exc}")
+
+    if watchdog_reason:
+        marker_file = archive_dir / "WATCHDOG_TERMINATED.json"
+        try:
+            with open(marker_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "terminated_early": True,
+                    "reason": watchdog_reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "framework": framework,
+                    "hardware_mode": hardware_mode,
+                }, f, indent=2)
+            print(f"[!] Watchdog termination record written to {marker_file.relative_to(ROOT_DIR)}")
+        except Exception as e:
+            print(f"[!] Could not write watchdog marker: {e}")
 
     # Re-create empty fps_metrics.log for clean start
     (LOG_DIR / "fps_metrics.log").touch()
@@ -586,6 +601,134 @@ if IS_WINDOWS:
                 pass
 
 
+def parse_fps_metrics_log(log_path: Path) -> list[dict]:
+    """Parse all JSON telemetry blocks written to fps_metrics.log."""
+    if not log_path.exists():
+        return []
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return []
+
+    decoder = json.JSONDecoder()
+    pos = 0
+    records = []
+    content_len = len(content)
+    while pos < content_len:
+        while pos < content_len and content[pos].isspace():
+            pos += 1
+        if pos >= content_len:
+            break
+        try:
+            obj, end_pos = decoder.raw_decode(content, idx=pos)
+            if isinstance(obj, dict):
+                records.append(obj)
+            pos = end_pos
+        except json.JSONDecodeError:
+            nl = content.find("\n", pos)
+            if nl == -1:
+                break
+            pos = nl + 1
+    return records
+
+
+class WatchdogMonitor:
+    """Monitors live fps_metrics.log to detect unplayable crawl, severe tearing/choke, or FPS collapse."""
+
+    def __init__(
+        self,
+        log_path: Path,
+        warmup_seconds: float = 120.0,
+        min_ui_fps: float = 2.0,
+        tearing_ratio_threshold: float = 0.15,
+        consecutive_failures_allowed: int = 2,
+    ) -> None:
+        self.log_path = log_path
+        self.warmup_seconds = warmup_seconds
+        self.min_ui_fps = min_ui_fps
+        self.tearing_ratio_threshold = tearing_ratio_threshold
+        self.consecutive_failures_allowed = consecutive_failures_allowed
+        self.processed_records: int = 0
+        self.consecutive_failures: int = 0
+        self.baseline_ui_fps: Optional[float] = None
+        self.last_flush_time: float = time.time()
+
+    def check(self, elapsed_seconds: float) -> Tuple[bool, Optional[str]]:
+        records = parse_fps_metrics_log(self.log_path)
+        if len(records) > self.processed_records:
+            new_records = records[self.processed_records:]
+            self.processed_records = len(records)
+            self.last_flush_time = time.time()
+
+            for rec in new_records:
+                active = float(rec.get("active_streams", 30) or 30)
+                duration = float(rec.get("window_duration_seconds", 60) or 60)
+                ui_frames = float(rec.get("ui_frames", 0))
+                decoded_frames = float(rec.get("decoded_frames", 0))
+
+                stream_seconds = max(1.0, active * duration)
+                avg_ui_fps = ui_frames / stream_seconds
+                avg_decode_fps = decoded_frames / stream_seconds
+                pres_ratio = (ui_frames / decoded_frames) if decoded_frames > 0 else 1.0
+
+                # Check if still in warmup
+                if elapsed_seconds < self.warmup_seconds:
+                    print(
+                        f"\n[Watchdog] Warmup window ({int(elapsed_seconds)}s/{int(self.warmup_seconds)}s): "
+                        f"UI {avg_ui_fps:.2f} FPS | Decode {avg_decode_fps:.2f} FPS | Presentation Ratio {pres_ratio:.1%}",
+                        flush=True,
+                    )
+                    continue
+
+                if self.baseline_ui_fps is None and avg_ui_fps > 0:
+                    self.baseline_ui_fps = avg_ui_fps
+
+                failure_reason: Optional[str] = None
+
+                # 1. Critically low UI FPS (< min_ui_fps)
+                if avg_ui_fps < self.min_ui_fps:
+                    failure_reason = (
+                        f"UI presentation FPS ({avg_ui_fps:.2f}) < minimum threshold ({self.min_ui_fps:.1f} FPS)"
+                    )
+                # 2. Severe tearing / render choke: decoders running, but UI thread drops >= 85% frames
+                elif pres_ratio < self.tearing_ratio_threshold and avg_ui_fps < 3.0:
+                    failure_reason = (
+                        f"Severe tearing / render choke (Presentation ratio {pres_ratio:.1%} < {self.tearing_ratio_threshold:.1%}, "
+                        f"UI FPS {avg_ui_fps:.2f} vs Decode FPS {avg_decode_fps:.2f})"
+                    )
+                # 3. Excessive FPS drop (> 75% drop from post-warmup baseline)
+                elif self.baseline_ui_fps and self.baseline_ui_fps >= 5.0 and avg_ui_fps < (0.25 * self.baseline_ui_fps):
+                    failure_reason = (
+                        f"Excessive FPS collapse: UI FPS ({avg_ui_fps:.2f}) dropped > 75% below baseline ({self.baseline_ui_fps:.2f} FPS)"
+                    )
+
+                if failure_reason:
+                    self.consecutive_failures += 1
+                    print(
+                        f"\n[!] WATCHDOG WARNING ({self.consecutive_failures}/{self.consecutive_failures_allowed}): {failure_reason}",
+                        flush=True,
+                    )
+                    if self.consecutive_failures >= self.consecutive_failures_allowed:
+                        trigger_reason = (
+                            f"WATCHDOG EARLY TERMINATE: {failure_reason} sustained for {self.consecutive_failures} consecutive reporting periods."
+                        )
+                        return True, trigger_reason
+                else:
+                    if self.consecutive_failures > 0:
+                        print(
+                            f"\n[✓] Watchdog: Performance acceptable (UI {avg_ui_fps:.2f} FPS, Ratio {pres_ratio:.1%}). Resetting warning counter.",
+                            flush=True,
+                        )
+                    self.consecutive_failures = 0
+
+        # Stall / Deadlock check: If more than 160 seconds have elapsed since last flush and we are beyond warmup + 1 window
+        if elapsed_seconds > (self.warmup_seconds + 60.0) and (time.time() - self.last_flush_time) > 160.0:
+            stall_reason = f"WATCHDOG EARLY TERMINATE: Application render / telemetry thread stalled (no metrics flush in {int(time.time() - self.last_flush_time)}s)."
+            return True, stall_reason
+
+        return False, None
+
+
 def execute_benchmark_session(
     framework: str,
     hardware_mode: str,
@@ -594,8 +737,30 @@ def execute_benchmark_session(
     total_minutes: float,
     phase1_minutes: float,
     extra_env: Optional[Dict[str, str]] = None,
+    watchdog_enabled: bool = True,
+    watchdog_min_ui_fps: float = 2.0,
+    watchdog_warmup_seconds: float = 120.0,
+    watchdog_tearing_ratio: float = 0.15,
+    watchdog_consecutive_failures: int = 2,
 ) -> bool:
     """Run a single benchmark phase session, monitor it, kill on timeout, and archive logs."""
+    if "BENCHMARK_WATCHDOG" in os.environ:
+        watchdog_enabled = os.environ["BENCHMARK_WATCHDOG"].strip().lower() not in ("0", "false", "no")
+    if "BENCHMARK_MIN_UI_FPS" in os.environ:
+        try:
+            watchdog_min_ui_fps = float(os.environ["BENCHMARK_MIN_UI_FPS"])
+        except ValueError:
+            pass
+    if "BENCHMARK_WARMUP_SECS" in os.environ:
+        try:
+            watchdog_warmup_seconds = float(os.environ["BENCHMARK_WARMUP_SECS"])
+        except ValueError:
+            pass
+    if "BENCHMARK_CONSECUTIVE_FAILURES" in os.environ:
+        try:
+            watchdog_consecutive_failures = int(os.environ["BENCHMARK_CONSECUTIVE_FAILURES"])
+        except ValueError:
+            pass
     total_seconds = int(total_minutes * 60)
     phase1_seconds = int(phase1_minutes * 60)
     phase2_seconds = total_seconds - phase1_seconds
@@ -664,6 +829,23 @@ def execute_benchmark_session(
     churn_started = False
     start_time = time.time()
 
+    watchdog = None
+    if watchdog_enabled:
+        watchdog = WatchdogMonitor(
+            log_path=LOG_DIR / "fps_metrics.log",
+            warmup_seconds=watchdog_warmup_seconds,
+            min_ui_fps=watchdog_min_ui_fps,
+            tearing_ratio_threshold=watchdog_tearing_ratio,
+            consecutive_failures_allowed=watchdog_consecutive_failures,
+        )
+        print(
+            f"[*] Quality Watchdog active: min UI FPS={watchdog_min_ui_fps:.1f}, "
+            f"tearing ratio threshold={watchdog_tearing_ratio:.0%}, "
+            f"warmup grace={int(watchdog_warmup_seconds)}s, "
+            f"consecutive periods={watchdog_consecutive_failures}"
+        )
+    watchdog_trigger_reason: Optional[str] = None
+
     try:
         if IS_WINDOWS:
             proc = DesktopProcess(cmd, cwd, env)
@@ -700,6 +882,17 @@ def execute_benchmark_session(
             if ret is not None:
                 print(f"\n[!] Warning: Benchmark process exited prematurely with code {ret} at {int(elapsed)}s")
                 break
+
+            # Quality Watchdog check (Low FPS / Severe Tearing / Choke)
+            if watchdog:
+                should_abort, abort_reason = watchdog.check(elapsed)
+                if should_abort:
+                    watchdog_trigger_reason = abort_reason
+                    print(f"\n\n{'!'*65}")
+                    print(f" [!] {abort_reason}")
+                    print(f" [*] Terminating benchmark early and advancing to next implementation...")
+                    print(f"{'!'*65}\n", flush=True)
+                    break
 
             # Trigger Phase 2 Churn if applicable and not already started
             if phase2_seconds > 0 and elapsed >= phase1_seconds and not churn_started:
@@ -750,7 +943,7 @@ def execute_benchmark_session(
         # Restore all cameras back to origin
         restore_all_rtsp_cameras()
         kill_all_benchmark_processes()
-        archived = archive_logs(framework, hardware_mode)
+        archived = archive_logs(framework, hardware_mode, watchdog_reason=watchdog_trigger_reason)
         print(f"[✓] Completed and archived to: {archived.relative_to(ROOT_DIR)}")
         print("==========================================================\n")
 
