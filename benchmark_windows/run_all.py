@@ -144,10 +144,10 @@ def main() -> None:
     all_benchmarks = [
         ("02CPPCPU.py", c_args),
         ("04cppgpu.py", c_args),
-        ("05csharpgpu.py", net_args),
         ("06csharpcpu.py", net_args),
-        ("07electrongpu.py", net_args),
+        ("05csharpgpu.py", net_args),
         ("08electroncpu.py", net_args),
+        ("07electrongpu.py", net_args),
     ]
 
     if args.only:
