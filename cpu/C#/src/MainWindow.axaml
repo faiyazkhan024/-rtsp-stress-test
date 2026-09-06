@@ -6,6 +6,7 @@
         mc:Ignorable="d" d:DesignWidth="1920" d:DesignHeight="1080"
         x:Class="RtspStressTest.MainWindow"
         Title="6-Hour RTSP Video Grid Benchmark (C# Avalonia CPU Decode)"
+        WindowState="Maximized"
         Background="#101014">
 
     <Grid RowDefinitions="Auto,*,Auto">

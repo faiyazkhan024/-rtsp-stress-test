@@ -18,7 +18,17 @@ static void signalHandler(int /*sig*/) {
 }
 #endif
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <timeapi.h>
+#pragma comment(lib, "winmm.lib")
+#endif
+
 int main(int argc, char* argv[]) {
+#if defined(_WIN32)
+    timeBeginPeriod(1);
+#endif
     raiseFileDescriptorLimit();
     applyCpuPlatformHints();
 
@@ -64,7 +74,9 @@ int main(int argc, char* argv[]) {
 #endif
 
     MainWindow window(config);
-    window.show();
+    window.showMaximized();
+    window.raise();
+    window.activateWindow();
 
     return app.exec();
 }

@@ -8,9 +8,7 @@
 #endif
 
 #include <QtGlobal>
-#ifdef Q_OS_MAC
 #include <QSurfaceFormat>
-#endif
 
 void raiseFileDescriptorLimit() {
 #if defined(__unix__) || defined(__APPLE__)
@@ -56,6 +54,13 @@ void applyGpuPlatformHints() {
     fmt.setRenderableType(QSurfaceFormat::OpenGL);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
     fmt.setVersion(4, 1);
+    fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+    QSurfaceFormat::setDefaultFormat(fmt);
+#elif defined(Q_OS_WIN)
+    QSurfaceFormat fmt;
+    fmt.setRenderableType(QSurfaceFormat::OpenGL);
+    fmt.setProfile(QSurfaceFormat::CompatibilityProfile);
+    fmt.setSwapInterval(0); // Non-blocking swap to allow all 30 widgets to render smoothly
     fmt.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
     QSurfaceFormat::setDefaultFormat(fmt);
 #endif

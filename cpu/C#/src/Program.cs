@@ -5,6 +5,9 @@ namespace RtspStressTest;
 
 public static class Program
 {
+    [System.Runtime.InteropServices.DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
+    private static extern uint TimeBeginPeriod(uint uMilliseconds);
+
     // Initialization code. Don't use any Avalonia, third-party APIs or any
     // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
     // yet and stuff might break.
@@ -13,6 +16,11 @@ public static class Program
     {
         try
         {
+            if (OperatingSystem.IsWindows())
+            {
+                TimeBeginPeriod(1);
+            }
+
             Console.WriteLine("===============================================================");
             Console.WriteLine(" 6-Hour RTSP 30-Video Grid Benchmark (C# Avalonia CPU Decode) ");
             Console.WriteLine("===============================================================");

@@ -55,6 +55,10 @@ if (!ensureFileDescriptorLimit()) {
       await win.loadFile(indexPath);
     }
 
+    win.maximize();
+    win.show();
+    win.focus();
+
     win.on('closed', () => {
       mainWindow = null;
     });
@@ -77,6 +81,10 @@ if (!ensureFileDescriptorLimit()) {
   }
 
   app.whenReady().then(bootstrap);
+
+  app.on('child-process-gone', (_event, details) => {
+    console.warn(`[Main] Child process gone: type=${details.type} reason=${details.reason} exitCode=${details.exitCode} name=${details.name || ''}`);
+  });
 
   app.on('window-all-closed', () => {
     app.quit();

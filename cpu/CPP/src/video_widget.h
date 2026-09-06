@@ -13,6 +13,7 @@ public:
     ~VideoWidget() override = default;
 
     int streamId() const { return m_streamId; }
+    bool hasNewFrame() const { return m_worker && m_worker->hasNewFrame(); }
 
 protected:
     void paintEvent(QPaintEvent* event) override;

@@ -99,9 +99,10 @@ export function applyChromiumFlags(): void {
     app.commandLine.appendSwitch('enable-gpu-rasterization');
     app.commandLine.appendSwitch('enable-zero-copy');
     app.commandLine.appendSwitch('enable-accelerated-video-decode');
-    app.commandLine.appendSwitch('disable-software-rasterizer');
+    app.commandLine.appendSwitch('disable-frame-rate-limit');
+    app.commandLine.appendSwitch('disable-gpu-vsync');
     app.commandLine.appendSwitch('use-angle', 'd3d11');
-    app.commandLine.appendSwitch('enable-features', 'D3D11VideoDecoder,CanvasOopRasterization');
+    app.commandLine.appendSwitch('enable-features', 'WebCodecs,D3D11VideoDecoder,CanvasOopRasterization');
     console.log('[Platform] Windows: D3D11 hardware decode');
   }
 }

@@ -15,6 +15,7 @@
         <Grid>
             <!-- Video Frame Render Surface -->
             <local:VideoImageControl x:Name="VideoImage"
+                                    RenderOptions.BitmapInterpolationMode="LowQuality"
                                     HorizontalAlignment="Stretch"
                                     VerticalAlignment="Stretch" />
 

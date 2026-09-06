@@ -167,6 +167,10 @@ public sealed unsafe class VideoGlControl : OpenGlControlBase
                 DrawNv12(gl, extras);
                 return;
             }
+            if (UploadMappedHwFrame(gl, extras, frame, upload || needRealloc, needRealloc))
+            {
+                return;
+            }
         }
 
         if (format is AVPixelFormat.AV_PIX_FMT_VAAPI or AVPixelFormat.AV_PIX_FMT_D3D11)
@@ -175,6 +179,11 @@ public sealed unsafe class VideoGlControl : OpenGlControlBase
             {
                 return;
             }
+        }
+
+        if (format is AVPixelFormat.AV_PIX_FMT_CUDA or AVPixelFormat.AV_PIX_FMT_VAAPI or AVPixelFormat.AV_PIX_FMT_D3D11)
+        {
+            return;
         }
 
         if (format == AVPixelFormat.AV_PIX_FMT_NV12 || (frame->data[0] != null && frame->data[1] != null && frame->data[2] == null))
@@ -306,6 +315,10 @@ public sealed unsafe class VideoGlControl : OpenGlControlBase
 
         var flags = (int)AvHwframeMap.AV_HWFRAME_MAP_READ;
         var ok = ffmpeg.av_hwframe_map(mapped, frame, flags) == 0;
+        if (!ok)
+        {
+            ok = ffmpeg.av_hwframe_transfer_data(mapped, frame, 0) == 0;
+        }
         if (ok)
         {
             var mappedFmt = (AVPixelFormat)mapped->format;

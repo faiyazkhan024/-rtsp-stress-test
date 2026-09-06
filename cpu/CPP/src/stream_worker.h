@@ -17,7 +17,7 @@ class StreamWorker : public QThread {
     Q_OBJECT
 
 public:
-    StreamWorker(int streamId, const std::string& rtspUrl, QObject* parent = nullptr);
+    StreamWorker(int streamId, const std::string& rtspUrl, int targetWidth = 640, int targetHeight = 360, QObject* parent = nullptr);
     ~StreamWorker() override;
 
     void stopWorker();
@@ -37,6 +37,7 @@ public:
 
     float currentFps() const { return m_currentFps.load(std::memory_order_relaxed); }
     void setCurrentFps(float fps) { m_currentFps.store(fps, std::memory_order_relaxed); }
+    bool hasNewFrame() const { return m_hasNewFrame.load(std::memory_order_relaxed); }
 
 protected:
     void run() override;
@@ -49,6 +50,8 @@ private:
 
     int m_streamId;
     std::string m_rtspUrl;
+    int m_targetWidth = 640;
+    int m_targetHeight = 360;
     std::atomic<bool> m_stopRequested{false};
     std::atomic<bool> m_isConnected{false};
 

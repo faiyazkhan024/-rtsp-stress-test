@@ -30,8 +30,41 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 # FFmpeg libraries (libavcodec, libavformat, libswscale, libavutil)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavcodec libavformat libswscale libavutil)
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(FFMPEG IMPORTED_TARGET libavcodec libavformat libswscale libavutil)
+endif()
+
+if(NOT TARGET PkgConfig::FFMPEG)
+    set(_FFMPEG_SEARCH_PATHS "$ENV{FFMPEG_DIR}" "C:/FFmpeg" "C:/Program Files/FFmpeg")
+    if(DEFINED ENV{LOCALAPPDATA})
+        file(TO_CMAKE_PATH "$ENV{LOCALAPPDATA}" _LOCALAPPDATA_CMAKE)
+        file(GLOB _WINGET_FFMPEG "${_LOCALAPPDATA_CMAKE}/Microsoft/WinGet/Packages/*FFmpeg*/*ffmpeg*")
+        list(APPEND _FFMPEG_SEARCH_PATHS ${_WINGET_FFMPEG})
+    endif()
+
+    find_path(FFMPEG_INCLUDE_DIR NAMES libavcodec/avcodec.h
+        HINTS ${_FFMPEG_SEARCH_PATHS}
+        PATH_SUFFIXES include
+    )
+    find_library(AVCODEC_LIBRARY NAMES avcodec HINTS ${_FFMPEG_SEARCH_PATHS} PATH_SUFFIXES lib)
+    find_library(AVFORMAT_LIBRARY NAMES avformat HINTS ${_FFMPEG_SEARCH_PATHS} PATH_SUFFIXES lib)
+    find_library(AVUTIL_LIBRARY NAMES avutil HINTS ${_FFMPEG_SEARCH_PATHS} PATH_SUFFIXES lib)
+    find_library(SWSCALE_LIBRARY NAMES swscale HINTS ${_FFMPEG_SEARCH_PATHS} PATH_SUFFIXES lib)
+
+    if(FFMPEG_INCLUDE_DIR AND AVCODEC_LIBRARY AND AVFORMAT_LIBRARY AND AVUTIL_LIBRARY AND SWSCALE_LIBRARY)
+        add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
+        target_include_directories(PkgConfig::FFMPEG INTERFACE "${FFMPEG_INCLUDE_DIR}")
+        target_link_libraries(PkgConfig::FFMPEG INTERFACE
+            "${AVCODEC_LIBRARY}"
+            "${AVFORMAT_LIBRARY}"
+            "${AVUTIL_LIBRARY}"
+            "${SWSCALE_LIBRARY}"
+        )
+    else()
+        message(FATAL_ERROR "Could NOT find FFmpeg development libraries (libavcodec, libavformat, libswscale, libavutil)")
+    endif()
+endif()
 
 add_executable(rtsp-stress-test-cpp-cpu
     src/main.cpp

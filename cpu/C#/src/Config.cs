@@ -11,14 +11,26 @@ public sealed class AppConfig
     public string LogPath { get; set; } = "/var/log/benchmark/fps_metrics.log";
     public string MachineId { get; set; } = Environment.MachineName;
     public string? FFmpegPath { get; set; }
-    public int RenderWidth { get; set; } = 640; // 640x360 default tile resolution prevents UI bus saturation on 30-stream grid
-    public int RenderHeight { get; set; } = 360;
+    public int RenderWidth { get; set; } = 320; // 320x180 matches native on-screen tile dimensions in 6x5 grid
+    public int RenderHeight { get; set; } = 180;
 
     public static AppConfig Load(string[] args)
     {
         var config = new AppConfig();
 
         // 1. Environment variables
+        var envW = Environment.GetEnvironmentVariable("RENDER_WIDTH");
+        if (!string.IsNullOrWhiteSpace(envW) && int.TryParse(envW, out var envRw) && envRw > 0)
+        {
+            config.RenderWidth = envRw;
+        }
+
+        var envH = Environment.GetEnvironmentVariable("RENDER_HEIGHT");
+        if (!string.IsNullOrWhiteSpace(envH) && int.TryParse(envH, out var envRh) && envRh > 0)
+        {
+            config.RenderHeight = envRh;
+        }
+
         var envUrl = Environment.GetEnvironmentVariable("RTSP_URL");
         if (!string.IsNullOrWhiteSpace(envUrl))
         {

@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     private readonly List<StreamWorker> _workers = new();
     private readonly List<VideoTileControl> _tiles = new();
     private DispatcherTimer? _timer;
+    private DispatcherTimer? _renderTimer;
 
     private TextBlock? _machineIdText;
     private TextBlock? _activeStreamsText;
@@ -92,9 +93,22 @@ public partial class MainWindow : Window
             }
         });
 
+        // 60 FPS Render Tick
+        var renderInterval = 15;
+        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(renderInterval), DispatcherPriority.Normal, OnRenderTick);
+        _renderTimer.Start();
+
         // 1-Second Telemetry and HUD Timer
         _timer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Normal, OnTelemetryTick);
         _timer.Start();
+    }
+
+    private void OnRenderTick(object? sender, EventArgs e)
+    {
+        for (var i = 0; i < _tiles.Count; i++)
+        {
+            _tiles[i].RequestRenderIfDirty();
+        }
     }
 
     private void OnTelemetryTick(object? sender, EventArgs e)
@@ -136,6 +150,7 @@ public partial class MainWindow : Window
 
     private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _renderTimer?.Stop();
         _timer?.Stop();
 
         foreach (var worker in _workers)

@@ -24,6 +24,11 @@ from typing import List, Tuple
 IS_WINDOWS = platform.system().lower() == "windows"
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 def print_banner(title: str) -> None:
     print("\n" + "=" * 65)
@@ -71,6 +76,19 @@ def audit_prerequisites() -> List[str]:
     """Audit system prerequisites and return a list of fatal missing dependencies."""
     print_banner("1. AUDITING SYSTEM PREREQUISITES & SDks")
     missing_deps: List[str] = []
+
+    # Auto-detect Visual Studio bundled CMake and Ninja if not in PATH
+    if IS_WINDOWS and not shutil.which("cmake"):
+        try:
+            vs_root = Path("C:/Program Files/Microsoft Visual Studio")
+            if vs_root.exists():
+                cmake_dirs = list(vs_root.glob("**/CommonExtensions/Microsoft/CMake/CMake/bin"))
+                if cmake_dirs and (cmake_dirs[0] / "cmake.exe").exists():
+                    c_dir = str(cmake_dirs[0])
+                    n_dir = str(cmake_dirs[0].parents[1] / "Ninja")
+                    os.environ["PATH"] = f"{c_dir};{n_dir};" + os.environ.get("PATH", "")
+        except Exception:
+            pass
 
     # 1. Node.js & npm
     has_node, node_ver = check_tool("node", ["node", "-v"])
@@ -195,6 +213,12 @@ def build_cpp(mode: str) -> bool:
 
     # 1. CMake configure
     config_cmd = ["cmake", "-B", "build", "-DCMAKE_BUILD_TYPE=Release"]
+    qt_candidate = Path("C:/Qt/6.8.3/msvc2022_64")
+    if qt_candidate.exists() and "CMAKE_PREFIX_PATH" not in os.environ:
+        config_cmd.append(f"-DCMAKE_PREFIX_PATH={qt_candidate}")
+    elif "CMAKE_PREFIX_PATH" in os.environ:
+        config_cmd.append(f"-DCMAKE_PREFIX_PATH={os.environ['CMAKE_PREFIX_PATH']}")
+
     if not run_command(config_cmd, app_dir, f"C++ Qt6 {mode.upper()}: CMake Configure"):
         print_agent_action(
             f"Qt6 / FFmpeg libraries for C++ {mode.upper()}",

@@ -58,7 +58,7 @@ public sealed unsafe class HwAccelManager : IDisposable
             _ => OperatingSystem.IsMacOS()
                 ? [AVHWDeviceType.AV_HWDEVICE_TYPE_VIDEOTOOLBOX]
                 : OperatingSystem.IsWindows()
-                    ? [AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA, AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA]
+                    ? [AVHWDeviceType.AV_HWDEVICE_TYPE_D3D11VA, AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA]
                     : [AVHWDeviceType.AV_HWDEVICE_TYPE_CUDA, AVHWDeviceType.AV_HWDEVICE_TYPE_VAAPI]
         };
     }

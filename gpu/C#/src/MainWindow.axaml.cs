@@ -97,8 +97,8 @@ public partial class MainWindow : Window
             }
         });
 
-        var renderInterval = Math.Max(10, 1000 / Math.Max(1, _config.RenderFps));
-        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(renderInterval), DispatcherPriority.Render, OnRenderTick);
+        var renderInterval = 15;
+        _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(renderInterval), DispatcherPriority.Normal, OnRenderTick);
         _renderTimer.Start();
 
         _telemetryTimer = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Normal, OnTelemetryTick);

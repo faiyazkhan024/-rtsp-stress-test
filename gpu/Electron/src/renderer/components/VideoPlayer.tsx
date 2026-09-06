@@ -52,9 +52,8 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
   const presentSizeRef = useRef({ width: 0, height: 0 });
   const isMac = isMacPlatform();
 
-  // Offscreen canvas and BitmapRenderer context refs
-  const offscreenCanvasRef = useRef<OffscreenCanvas | null>(null);
-  const bitmapCtxRef = useRef<ImageBitmapRenderingContext | null>(null);
+  // Canvas 2D rendering context ref for zero-copy low-latency presentation
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
 
   useImperativeHandle(ref, () => ({
     getFpsAndReset: () => {
@@ -113,42 +112,19 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
 
     let isDestroyed = false;
 
-    // Architecture Constraint:
-    // "Render the VideoFrame objects to an OffscreenCanvas. You MUST use the BitmapRenderer context
-    // (transferFromImageBitmap) or WebGPU (importExternalTexture) to ensure zero-copy GPU-to-GPU transfer.
-    // Do not use Canvas 2D drawImage."
-    let offscreen: OffscreenCanvas | null = offscreenCanvasRef.current;
-    let bitmapCtx: ImageBitmapRenderingContext | null = bitmapCtxRef.current;
-
-    if (!bitmapCtx) {
-      try {
-        if ('transferControlToOffscreen' in canvas && !offscreenCanvasRef.current) {
-          offscreen = canvas.transferControlToOffscreen();
-          offscreenCanvasRef.current = offscreen;
-          bitmapCtx = offscreen.getContext('bitmaprenderer') as ImageBitmapRenderingContext | null;
-        }
-      } catch (err) {
-        console.warn(`[Stream ${streamId}] transferControlToOffscreen fallback:`, err);
-      }
-
-      if (!bitmapCtx) {
-        bitmapCtx = canvas.getContext('bitmaprenderer') as ImageBitmapRenderingContext | null;
-      }
-      bitmapCtxRef.current = bitmapCtx;
-    }
-
-    if (!bitmapCtx) {
-      console.error(`[Stream ${streamId}] Failed to acquire ImageBitmapRenderingContext`);
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    if (!ctx) {
+      console.error(`[Stream ${streamId}] Failed to acquire 2D context`);
       return;
     }
+    ctxRef.current = ctx;
+    ctx.imageSmoothingEnabled = false;
 
     const updatePresentSize = () => {
       const dpr = window.devicePixelRatio || 1;
-      const w = Math.round(canvas.clientWidth * dpr);
-      const h = Math.round(canvas.clientHeight * dpr);
-      if (w > 10 && h > 10) {
-        presentSizeRef.current = { width: w, height: h };
-      }
+      const cssW = Math.max(1, Math.round(canvas.clientWidth * dpr));
+      const cssH = Math.max(1, Math.round(canvas.clientHeight * dpr));
+      presentSizeRef.current = { width: cssW, height: cssH };
     };
     updatePresentSize();
     const resizeObserver = typeof ResizeObserver !== 'undefined'
@@ -188,7 +164,6 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
 
       decodedCountRef.current++;
 
-      // Effective FPS: Presentation Timestamp (PTS) uniqueness check
       const curPts = videoFrame.timestamp;
       if (lastPtsRef.current !== null && curPts === lastPtsRef.current) {
         videoFrame.close();
@@ -196,92 +171,40 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
       }
       lastPtsRef.current = curPts;
 
-      // Backpressure: drop frame if presentation pipeline is backed up (> 2 frames pending)
-      if (pendingFramesRef.current > 2) {
+      const targetW = presentSizeRef.current.width > 0 ? presentSizeRef.current.width : videoFrame.displayWidth;
+      const targetH = presentSizeRef.current.height > 0 ? presentSizeRef.current.height : videoFrame.displayHeight;
+
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+        if (ctxRef.current) {
+          ctxRef.current.imageSmoothingEnabled = false;
+        }
+      }
+
+      try {
+        if (ctxRef.current) {
+          ctxRef.current.drawImage(videoFrame, 0, 0, targetW, targetH);
+          const now = performance.now();
+          if (lastPresentedTimeRef.current > 0) {
+            lastDeltaMsRef.current = now - lastPresentedTimeRef.current;
+          }
+          lastPresentedTimeRef.current = now;
+          if (!isConnectedRef.current) {
+            connectedSinceRef.current = now;
+          }
+          isConnectedRef.current = true;
+          frameCountRef.current++;
+        }
+      } catch (err) {
+        console.warn(`[Stream ${streamId}] drawImage error:`, err);
+      } finally {
         videoFrame.close();
-        return;
       }
 
-      // Universal tile presentation sizing across all platforms
-      const targetW = presentSizeRef.current.width > 10
-        ? presentSizeRef.current.width
-        : videoFrame.displayWidth;
-      const targetH = presentSizeRef.current.height > 10
-        ? presentSizeRef.current.height
-        : videoFrame.displayHeight;
-
-      if (offscreen) {
-        if (offscreen.width !== targetW || offscreen.height !== targetH) {
-          offscreen.width = targetW;
-          offscreen.height = targetH;
-        }
-      } else if (canvas) {
-        if (canvas.width !== targetW || canvas.height !== targetH) {
-          canvas.width = targetW;
-          canvas.height = targetH;
-        }
+      if (placeholderRef.current && placeholderRef.current.style.display !== 'none') {
+        placeholderRef.current.style.display = 'none';
       }
-
-      pendingFramesRef.current++;
-
-      // Downsample via GPU hardware scaler during ImageBitmap creation
-      const shouldResize = targetW > 10 && targetH > 10 &&
-        (targetW !== videoFrame.displayWidth || targetH !== videoFrame.displayHeight);
-      const bitmapOptions: ImageBitmapOptions | undefined = shouldResize
-        ? { resizeWidth: Math.round(targetW), resizeHeight: Math.round(targetH), resizeQuality: 'low' }
-        : undefined;
-
-      const bitmapPromise = (bitmapOptions
-        ? createImageBitmap(videoFrame, bitmapOptions)
-        : createImageBitmap(videoFrame)
-      ).catch((err) => {
-        if (bitmapOptions) {
-          return createImageBitmap(videoFrame);
-        }
-        throw err;
-      });
-
-      bitmapPromise
-        .then((bitmap) => {
-          try {
-            videoFrame.close();
-          } catch (_) {}
-          pendingFramesRef.current--;
-
-          if (isDestroyed) {
-            bitmap.close();
-            return;
-          }
-
-          if (bitmapCtxRef.current) {
-            bitmapCtxRef.current.transferFromImageBitmap(bitmap);
-
-            const now = performance.now();
-            if (lastPresentedTimeRef.current > 0 && (now - lastPresentedTimeRef.current) < 2000) {
-              lastDeltaMsRef.current = now - lastPresentedTimeRef.current;
-            } else {
-              lastDeltaMsRef.current = 40.0;
-            }
-            lastPresentedTimeRef.current = now;
-            if (!isConnectedRef.current) {
-              connectedSinceRef.current = now;
-            }
-            isConnectedRef.current = true;
-            frameCountRef.current++;
-          } else {
-            bitmap.close();
-          }
-
-          if (placeholderRef.current && placeholderRef.current.style.display !== 'none') {
-            placeholderRef.current.style.display = 'none';
-          }
-        })
-        .catch(() => {
-          pendingFramesRef.current--;
-          try {
-            videoFrame.close();
-          } catch (_) {}
-        });
     };
 
     const createDecoder = (): VideoDecoder | null => {
@@ -289,17 +212,16 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
         return new VideoDecoder({
           output: onDecodedFrame,
           error: (err) => {
-            console.warn(`[Stream ${streamId}] VideoDecoder error:`, err);
+            console.warn(`[Stream ${streamId}] VideoDecoder error:`, (err as any)?.name, (err as any)?.message || err);
             hasConfiguredRef.current = false;
+            if (hwAccelRef.current === 'prefer-hardware') {
+              hwAccelRef.current = 'no-preference';
+              console.warn(`[Stream ${streamId}] Hardware decoder error, falling back to no-preference`);
+            }
             if (decoderRef.current && decoderRef.current.state !== 'closed') {
               try {
                 decoderRef.current.close();
               } catch (_) {}
-            }
-            decoderRef.current = null;
-            if (hwAccelRef.current === 'prefer-hardware') {
-              hwAccelRef.current = 'no-preference';
-              console.warn(`[Stream ${streamId}] Hardware decode error/saturation, falling back to no-preference`);
             }
           },
         });
@@ -327,7 +249,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
     };
 
     ws.onmessage = (event: MessageEvent) => {
-      if (isDestroyed) return;
+      if (isDestroyed || !decoderRef.current) return;
       if (typeof event.data === 'string') return;
 
       const buffer = event.data as ArrayBuffer;
@@ -340,17 +262,17 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
 
       if (isKey) {
         const detectedCodec = extractSpsCodec(nalData) || 'avc1.42c032';
+        if (!decoderRef.current || decoderRef.current.state === 'closed') {
+          decoderRef.current = createDecoder();
+          hasConfiguredRef.current = false;
+        }
+
         const needsConfig = !hasConfiguredRef.current
           || currentCodecRef.current !== detectedCodec
-          || !decoderRef.current
-          || decoderRef.current.state !== 'configured';
-        if (needsConfig) {
+          || (decoderRef.current && decoderRef.current.state !== 'configured');
+
+        if (needsConfig && decoderRef.current) {
           try {
-            if (!decoderRef.current || decoderRef.current.state === 'closed') {
-              const nextDecoder = createDecoder();
-              if (!nextDecoder) return;
-              decoderRef.current = nextDecoder;
-            }
             decoderRef.current.configure({
               codec: detectedCodec,
               avc: { format: 'annexb' },
@@ -360,17 +282,32 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
             hasConfiguredRef.current = true;
             currentCodecRef.current = detectedCodec;
           } catch (configErr) {
-            console.error(`[Stream ${streamId}] Failed to configure decoder with ${detectedCodec}:`, configErr);
+            console.warn(`[Stream ${streamId}] configure failed with ${hwAccelRef.current}:`, configErr);
+            if (hwAccelRef.current !== 'no-preference') {
+              hwAccelRef.current = 'no-preference';
+              try {
+                decoderRef.current.configure({
+                  codec: detectedCodec,
+                  avc: { format: 'annexb' },
+                  hardwareAcceleration: 'no-preference',
+                  optimizeForLatency: true,
+                });
+                hasConfiguredRef.current = true;
+                currentCodecRef.current = detectedCodec;
+              } catch (fallbackErr) {
+                console.error(`[Stream ${streamId}] Fallback configure failed:`, fallbackErr);
+              }
+            }
           }
         }
       }
 
-      // Can only decode if decoder is ready and configured
+      // Can only decode if decoder has been configured with a keyframe
       if (!hasConfiguredRef.current || !decoderRef.current || decoderRef.current.state !== 'configured') {
         return;
       }
 
-      if (!isKey && decoderRef.current.decodeQueueSize > 2) {
+      if (!isKey && decoderRef.current.decodeQueueSize > 10) {
         return;
       }
 

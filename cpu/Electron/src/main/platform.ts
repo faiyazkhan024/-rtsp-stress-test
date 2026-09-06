@@ -86,6 +86,10 @@ export function applyChromiumFlags(): void {
 
   if (process.platform === 'win32') {
     app.commandLine.appendSwitch('disable-features', 'D3D11VideoDecoder,VaapiVideoDecoder');
-    console.log('[Platform] Windows: software H.264 decode');
+    app.commandLine.appendSwitch('use-angle', 'd3d11');
+    app.commandLine.appendSwitch('enable-gpu-rasterization');
+    app.commandLine.appendSwitch('enable-zero-copy');
+    app.commandLine.appendSwitch('ignore-gpu-blocklist');
+    console.log('[Platform] Windows: software H.264 decode, D3D11 compositor');
   }
 }

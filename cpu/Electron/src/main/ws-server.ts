@@ -116,6 +116,10 @@ export class VideoWebSocketServer {
 
         for (const client of clients) {
           if (client.readyState === WebSocket.OPEN) {
+            // Drop delta frames if client socket buffer is saturated to prevent unbounded memory growth
+            if (client.bufferedAmount > 2 * 1024 * 1024 && !frame.isKey) {
+              continue;
+            }
             client.send(packet, { binary: true });
           }
         }

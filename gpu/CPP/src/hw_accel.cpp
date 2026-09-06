@@ -30,8 +30,8 @@ std::shared_ptr<HwAccelManager> HwAccelManager::create(const std::string& typePr
 #elif defined(__APPLE__)
         candidates.push_back(AV_HWDEVICE_TYPE_VIDEOTOOLBOX);
 #elif defined(_WIN32)
-        candidates.push_back(AV_HWDEVICE_TYPE_CUDA);
         candidates.push_back(AV_HWDEVICE_TYPE_D3D11VA);
+        candidates.push_back(AV_HWDEVICE_TYPE_CUDA);
 #else
         candidates.push_back(AV_HWDEVICE_TYPE_CUDA);
         candidates.push_back(AV_HWDEVICE_TYPE_VAAPI);

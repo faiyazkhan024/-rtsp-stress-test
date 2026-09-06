@@ -191,18 +191,122 @@ void StreamWorker::run() {
             continue;
         }
 
-        // Bitstream filter to ensure Annex B start codes and in-band SPS/PPS
-        const AVBitStreamFilter* bsf = av_bsf_get_by_name("h264_mp4toannexb");
+        // Bitstream filter to ensure Annex B start codes if extradata exists
+        const AVBitStreamFilter* bsf = (codecPar->extradata_size > 0) ? av_bsf_get_by_name("h264_mp4toannexb") : nullptr;
         AVBSFContext* bsfCtx = nullptr;
         if (bsf) {
             if (av_bsf_alloc(bsf, &bsfCtx) == 0) {
                 avcodec_parameters_copy(bsfCtx->par_in, codecPar);
-                av_bsf_init(bsfCtx);
+                if (av_bsf_init(bsfCtx) < 0) {
+                    av_bsf_free(&bsfCtx);
+                    bsfCtx = nullptr;
+                }
             }
         }
         AVPacket* filteredPkt = av_packet_alloc();
 
         m_isConnected.store(true, std::memory_order_release);
+        struct SwsContext* swsCtx = nullptr;
+
+        auto processDecodedFrame = [&](AVFrame* inFrame) {
+            int w = inFrame->width;
+            int h = inFrame->height;
+            if (w <= 0 || h <= 0) {
+                return;
+            }
+
+            m_width.store(w, std::memory_order_relaxed);
+            m_height.store(h, std::memory_order_relaxed);
+            m_currentPts.store(inFrame->pts, std::memory_order_relaxed);
+
+            AVFrame* publishFrame = nullptr;
+
+            if (m_hwAccel && m_hwAccel->isInitialized() && inFrame->format == m_hwAccel->hwPixFormat()) {
+                m_isHwAccelerated.store(true, std::memory_order_relaxed);
+                AVFrame* swFrame = av_frame_alloc();
+                if (swFrame) {
+                    if (av_hwframe_transfer_data(swFrame, inFrame, 0) == 0) {
+                        swFrame->pts = inFrame->pts;
+
+                        const int targetW = 320;
+                        const int targetH = 180;
+                        if (swFrame->width > targetW && swFrame->height > targetH) {
+                            swsCtx = sws_getCachedContext(swsCtx,
+                                                          swFrame->width, swFrame->height, (AVPixelFormat)swFrame->format,
+                                                          targetW, targetH, (AVPixelFormat)swFrame->format,
+                                                          SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                            if (swsCtx) {
+                                AVFrame* scaledFrame = av_frame_alloc();
+                                if (scaledFrame) {
+                                    scaledFrame->format = swFrame->format;
+                                    scaledFrame->width = targetW;
+                                    scaledFrame->height = targetH;
+                                    scaledFrame->pts = swFrame->pts;
+                                    if (av_frame_get_buffer(scaledFrame, 32) == 0) {
+                                        sws_scale(swsCtx, swFrame->data, swFrame->linesize, 0, swFrame->height,
+                                                  scaledFrame->data, scaledFrame->linesize);
+                                        publishFrame = scaledFrame;
+                                        av_frame_free(&swFrame);
+                                    } else {
+                                        av_frame_free(&scaledFrame);
+                                        publishFrame = swFrame;
+                                    }
+                                } else {
+                                    publishFrame = swFrame;
+                                }
+                            } else {
+                                publishFrame = swFrame;
+                            }
+                        } else {
+                            publishFrame = swFrame;
+                        }
+                    } else {
+                        av_frame_free(&swFrame);
+                    }
+                }
+            } else {
+                const int targetW = 320;
+                const int targetH = 180;
+                if (inFrame->width > targetW && inFrame->height > targetH) {
+                    swsCtx = sws_getCachedContext(swsCtx,
+                                                  inFrame->width, inFrame->height, (AVPixelFormat)inFrame->format,
+                                                  targetW, targetH, (AVPixelFormat)inFrame->format,
+                                                  SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                    if (swsCtx) {
+                        AVFrame* scaledFrame = av_frame_alloc();
+                        if (scaledFrame) {
+                            scaledFrame->format = inFrame->format;
+                            scaledFrame->width = targetW;
+                            scaledFrame->height = targetH;
+                            scaledFrame->pts = inFrame->pts;
+                            if (av_frame_get_buffer(scaledFrame, 32) == 0) {
+                                sws_scale(swsCtx, inFrame->data, inFrame->linesize, 0, inFrame->height,
+                                          scaledFrame->data, scaledFrame->linesize);
+                                publishFrame = scaledFrame;
+                            } else {
+                                av_frame_free(&scaledFrame);
+                                publishFrame = av_frame_clone(inFrame);
+                            }
+                        } else {
+                            publishFrame = av_frame_clone(inFrame);
+                        }
+                    } else {
+                        publishFrame = av_frame_clone(inFrame);
+                    }
+                } else {
+                    publishFrame = av_frame_clone(inFrame);
+                }
+            }
+
+            if (publishFrame) {
+                AVFrame* old = m_sharedFrame.exchange(publishFrame, std::memory_order_acq_rel);
+                if (old) {
+                    av_frame_free(&old);
+                }
+                m_hasNewFrame.store(true, std::memory_order_release);
+                m_decodedFrames.fetch_add(1, std::memory_order_relaxed);
+            }
+        };
 
         // Demuxing and decoding loop
         while (!isInterrupted()) {
@@ -215,63 +319,19 @@ void StreamWorker::run() {
                 if (bsfCtx) {
                     if (av_bsf_send_packet(bsfCtx, pkt) == 0) {
                         while (av_bsf_receive_packet(bsfCtx, filteredPkt) == 0) {
-                            avcodec_send_packet(codecCtx, filteredPkt);
-                            av_packet_unref(filteredPkt);
-
-                            while (avcodec_receive_frame(codecCtx, frame) == 0) {
-                                int w = frame->width;
-                                int h = frame->height;
-                                if (w > 0 && h > 0) {
-                                    m_width.store(w, std::memory_order_relaxed);
-                                    m_height.store(h, std::memory_order_relaxed);
-                                    m_currentPts.store(frame->pts, std::memory_order_relaxed);
-
-                                    if (m_hwAccel && m_hwAccel->isInitialized() &&
-                                        frame->format == m_hwAccel->hwPixFormat()) {
-                                        m_isHwAccelerated.store(true, std::memory_order_relaxed);
-                                    }
-
-                                    // Zero-copy reference-counted frame clone
-                                    AVFrame* clone = av_frame_clone(frame);
-                                    if (clone) {
-                                        AVFrame* old = m_sharedFrame.exchange(clone, std::memory_order_acq_rel);
-                                        if (old) {
-                                            av_frame_free(&old);
-                                        }
-                                        m_hasNewFrame.store(true, std::memory_order_release);
-                                        m_decodedFrames.fetch_add(1, std::memory_order_relaxed);
-                                    }
+                            if (avcodec_send_packet(codecCtx, filteredPkt) >= 0) {
+                                while (avcodec_receive_frame(codecCtx, frame) == 0) {
+                                    processDecodedFrame(frame);
+                                    av_frame_unref(frame);
                                 }
-                                av_frame_unref(frame);
                             }
+                            av_packet_unref(filteredPkt);
                         }
                     }
                 } else {
-                    int sendRet = avcodec_send_packet(codecCtx, pkt);
-                    if (sendRet >= 0) {
+                    if (avcodec_send_packet(codecCtx, pkt) >= 0) {
                         while (avcodec_receive_frame(codecCtx, frame) == 0) {
-                            int w = frame->width;
-                            int h = frame->height;
-                            if (w > 0 && h > 0) {
-                                m_width.store(w, std::memory_order_relaxed);
-                                m_height.store(h, std::memory_order_relaxed);
-                                m_currentPts.store(frame->pts, std::memory_order_relaxed);
-
-                                if (m_hwAccel && m_hwAccel->isInitialized() &&
-                                    frame->format == m_hwAccel->hwPixFormat()) {
-                                    m_isHwAccelerated.store(true, std::memory_order_relaxed);
-                                }
-
-                                AVFrame* clone = av_frame_clone(frame);
-                                if (clone) {
-                                    AVFrame* old = m_sharedFrame.exchange(clone, std::memory_order_acq_rel);
-                                    if (old) {
-                                        av_frame_free(&old);
-                                    }
-                                    m_hasNewFrame.store(true, std::memory_order_release);
-                                    m_decodedFrames.fetch_add(1, std::memory_order_relaxed);
-                                }
-                            }
+                            processDecodedFrame(frame);
                             av_frame_unref(frame);
                         }
                     }
@@ -288,6 +348,10 @@ void StreamWorker::run() {
         av_packet_free(&filteredPkt);
 
         m_isConnected.store(false, std::memory_order_release);
+        if (swsCtx) {
+            sws_freeContext(swsCtx);
+            swsCtx = nullptr;
+        }
         avcodec_free_context(&codecCtx);
         avformat_close_input(&fmtCtx);
         AVFrame* stale = m_sharedFrame.exchange(nullptr, std::memory_order_acq_rel);

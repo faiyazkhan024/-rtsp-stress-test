@@ -43,42 +43,68 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Master RTSP Benchmark Runner with Idle Stabilization (Headed UI)")
     parser.add_argument("--cool-mins", type=float, default=5.0, help="Cool-down minutes between runs (default: 5.0)")
     parser.add_argument("--quick-test", action="store_true", help="Dry run: runs each test for 1 minute to verify setup")
-    parser.add_argument("--url", type=str, default="rtsp://127.0.0.1:8554/live", help="RTSP target stream URL")
+    parser.add_argument("--url", type=str, default="rtsp://127.0.0.1:8554/cam%d", help="RTSP target stream URL")
     parser.add_argument("--streams", type=int, default=30, help="Number of concurrent video tiles (default: 30)")
+    parser.add_argument("--duration", type=float, default=None, help="Custom total test duration in minutes (e.g. 30)")
+    parser.add_argument("--phase1", type=float, default=None, help="Custom Phase 1 steady-state minutes (e.g. 15)")
+    parser.add_argument("--only", "--targets", type=str, default=None, dest="only", help="Comma-separated script keywords to run (e.g. csharp,electron)")
     parser.add_argument("--start-from", type=str, default=None, help="Start from a specific script (e.g. 05csharpgpu.py or csharp)")
     args = parser.parse_args()
 
     common_ui_args = ["--url", args.url, "--streams", str(args.streams)]
 
-    # Configure duration overrides if quick-test flag is active (1.25 min / 75s ensures 60s telemetry window flushes)
-    c_args = (["--duration", "1.25", "--phase1", "0.5"] if args.quick_test else []) + common_ui_args
-    net_args = (["--duration", "1.25", "--phase1", "0.5"] if args.quick_test else []) + common_ui_args
+    # Configure duration overrides
+    dur_args = []
+    if args.quick_test:
+        dur_args = ["--duration", "1.25", "--phase1", "0.5"]
+    elif args.duration is not None:
+        p1 = args.phase1 if args.phase1 is not None else (args.duration / 2.0)
+        dur_args = ["--duration", str(args.duration), "--phase1", str(p1)]
+
+    c_args = dur_args + common_ui_args
+    net_args = dur_args + common_ui_args
     pause_args = ["--min-cool-mins", "0.2" if args.quick_test else str(args.cool_mins)]
 
     print("\n" + "#" * 60)
-    print(" STARTING COMPLETE WINDOWS BENCHMARK WORKLOAD SUITE")
-    print(f" Mode: {'DRY RUN QUICK TEST (1 min/run)' if args.quick_test else 'FULL PRODUCTION RUN (HEADED UI)'}")
+    print(" STARTING WINDOWS BENCHMARK WORKLOAD SUITE")
+    if args.quick_test:
+        mode_str = "DRY RUN QUICK TEST (1 min/run)"
+    elif args.duration:
+        mode_str = f"CUSTOM DURATION ({args.duration}m total: {args.phase1 or args.duration/2}m steady + {args.duration - (args.phase1 or args.duration/2)}m churn)"
+    else:
+        mode_str = "FULL PRODUCTION RUN (HEADED UI)"
+    print(f" Mode: {mode_str}")
     print(f" RTSP Target: {args.url} ({args.streams} streams)")
     print(f" Inter-run cooldown: {args.cool_mins} minutes")
+    if args.only:
+        print(f" Filtered targets: {args.only}")
     print("#" * 60 + "\n")
 
+    all_benchmarks = [
+        ("02CPPCPU.py", c_args),
+        ("04cppgpu.py", c_args),
+        ("05csharpgpu.py", net_args),
+        ("06csharpcpu.py", net_args),
+        ("07electrongpu.py", net_args),
+        ("08electroncpu.py", net_args),
+    ]
+
+    if args.only:
+        filters = [f.strip().lower() for f in args.only.split(",") if f.strip()]
+        selected_benchmarks = [
+            (s, a) for (s, a) in all_benchmarks
+            if any(f in s.lower() or f.replace("_", "") in s.lower() for f in filters)
+        ]
+    else:
+        selected_benchmarks = all_benchmarks
+
     steps = [
-        # (script, args, is_pause)
         ("00start_rtsp_server.py", [], False),
         ("01baseline.py", [], False),
-        ("02CPPCPU.py", c_args, False),
-        ("03pausetillidealagain.py", pause_args, True),
-        ("04cppgpu.py", c_args, False),
-        ("03pausetillidealagain.py", pause_args, True),
-        ("05csharpgpu.py", net_args, False),
-        ("03pausetillidealagain.py", pause_args, True),
-        ("06csharpcpu.py", net_args, False),
-        ("03pausetillidealagain.py", pause_args, True),
-        ("07electrongpu.py", net_args, False),
-        ("03pausetillidealagain.py", pause_args, True),
-        ("08electroncpu.py", net_args, False),
-        ("03pausetillidealagain.py", pause_args, True),
     ]
+    for s, a in selected_benchmarks:
+        steps.append((s, a, False))
+        steps.append(("03pausetillidealagain.py", pause_args, True))
 
     if args.start_from:
         target = args.start_from.lower()

@@ -25,11 +25,11 @@ MainWindow::MainWindow(const AppConfig& config,
     setupUi();
     startWorkers();
 
-    // Decoupled master rendering timer: 30 FPS repaint without starving the main event loop
+    // Decoupled master rendering timer: 60 Hz polling of workers without timer quantization
     m_renderTimer = new QTimer(this);
+    m_renderTimer->setTimerType(Qt::PreciseTimer);
     connect(m_renderTimer, &QTimer::timeout, this, &MainWindow::onRenderTick);
-    int renderIntervalMs = std::max(10, 1000 / m_config.renderFps);
-    m_renderTimer->start(renderIntervalMs);
+    m_renderTimer->start(15);
 
     // Master telemetry timer: 1-second interval FPS tick & rolling window management
     m_telemetryTimer = new QTimer(this);
@@ -177,11 +177,6 @@ void MainWindow::onRenderTick() {
 void MainWindow::onTelemetryTick() {
     m_telemetry->tick(m_workers);
     updateHud();
-    for (auto* widget : m_videoWidgets) {
-        if (widget) {
-            widget->update();
-        }
-    }
 }
 
 void MainWindow::updateHud() {

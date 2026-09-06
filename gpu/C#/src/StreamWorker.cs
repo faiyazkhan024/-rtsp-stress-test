@@ -27,6 +27,7 @@ public sealed unsafe class StreamWorker : IDisposable
     private long _lastPresentedTimestamp;
     private double _lastDeltaMs;
     private string _hwDeviceName = "CPU";
+    private SwsContext* _swsCtx;
 
     public int StreamId => _streamId;
     public bool IsConnected => _isConnected;
@@ -299,15 +300,123 @@ public sealed unsafe class StreamWorker : IDisposable
                 var pts = frame->pts != ffmpeg.AV_NOPTS_VALUE ? frame->pts : frame->best_effort_timestamp;
                 Interlocked.Exchange(ref _currentPts, pts);
 
+                AVFrame* publishFrame = null;
                 if (_hwAccel.IsInitialized && (AVPixelFormat)frame->format == _hwAccel.HwPixFormat)
                 {
                     _isHwAccelerated = true;
+                    var swFrame = ffmpeg.av_frame_alloc();
+                    if (swFrame != null)
+                    {
+                        if (ffmpeg.av_hwframe_transfer_data(swFrame, frame, 0) == 0)
+                        {
+                            swFrame->pts = pts;
+                            const int targetW = 320;
+                            const int targetH = 180;
+                            if (swFrame->width > targetW && swFrame->height > targetH)
+                            {
+                                _swsCtx = ffmpeg.sws_getCachedContext(
+                                    _swsCtx,
+                                    swFrame->width, swFrame->height, (AVPixelFormat)swFrame->format,
+                                    targetW, targetH, (AVPixelFormat)swFrame->format,
+                                    (int)SwsFlags.SWS_FAST_BILINEAR, null, null, null);
+                                if (_swsCtx != null)
+                                {
+                                    var scaledFrame = ffmpeg.av_frame_alloc();
+                                    if (scaledFrame != null)
+                                    {
+                                        scaledFrame->format = swFrame->format;
+                                        scaledFrame->width = targetW;
+                                        scaledFrame->height = targetH;
+                                        scaledFrame->pts = pts;
+                                        if (ffmpeg.av_frame_get_buffer(scaledFrame, 32) == 0)
+                                        {
+                                            ffmpeg.sws_scale(
+                                                _swsCtx,
+                                                swFrame->data, swFrame->linesize, 0, swFrame->height,
+                                                scaledFrame->data, scaledFrame->linesize);
+                                            publishFrame = scaledFrame;
+                                            ffmpeg.av_frame_free(&swFrame);
+                                        }
+                                        else
+                                        {
+                                            ffmpeg.av_frame_free(&scaledFrame);
+                                            publishFrame = swFrame;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        publishFrame = swFrame;
+                                    }
+                                }
+                                else
+                                {
+                                    publishFrame = swFrame;
+                                }
+                            }
+                            else
+                            {
+                                publishFrame = swFrame;
+                            }
+                        }
+                        else
+                        {
+                            ffmpeg.av_frame_free(&swFrame);
+                        }
+                    }
+                }
+                else
+                {
+                    const int targetW = 320;
+                    const int targetH = 180;
+                    if (frame->width > targetW && frame->height > targetH)
+                    {
+                        _swsCtx = ffmpeg.sws_getCachedContext(
+                            _swsCtx,
+                            frame->width, frame->height, (AVPixelFormat)frame->format,
+                            targetW, targetH, (AVPixelFormat)frame->format,
+                            (int)SwsFlags.SWS_FAST_BILINEAR, null, null, null);
+                        if (_swsCtx != null)
+                        {
+                            var scaledFrame = ffmpeg.av_frame_alloc();
+                            if (scaledFrame != null)
+                            {
+                                scaledFrame->format = frame->format;
+                                scaledFrame->width = targetW;
+                                scaledFrame->height = targetH;
+                                scaledFrame->pts = pts;
+                                if (ffmpeg.av_frame_get_buffer(scaledFrame, 32) == 0)
+                                {
+                                    ffmpeg.sws_scale(
+                                        _swsCtx,
+                                        frame->data, frame->linesize, 0, frame->height,
+                                        scaledFrame->data, scaledFrame->linesize);
+                                    publishFrame = scaledFrame;
+                                }
+                                else
+                                {
+                                    ffmpeg.av_frame_free(&scaledFrame);
+                                    publishFrame = ffmpeg.av_frame_clone(frame);
+                                }
+                            }
+                            else
+                            {
+                                publishFrame = ffmpeg.av_frame_clone(frame);
+                            }
+                        }
+                        else
+                        {
+                            publishFrame = ffmpeg.av_frame_clone(frame);
+                        }
+                    }
+                    else
+                    {
+                        publishFrame = ffmpeg.av_frame_clone(frame);
+                    }
                 }
 
-                var clone = ffmpeg.av_frame_clone(frame);
-                if (clone != null)
+                if (publishFrame != null)
                 {
-                    var old = Interlocked.Exchange(ref _sharedFrame, (nint)clone);
+                    var old = Interlocked.Exchange(ref _sharedFrame, (nint)publishFrame);
                     if (old != 0)
                     {
                         var oldFrame = (AVFrame*)old;
@@ -368,6 +477,11 @@ public sealed unsafe class StreamWorker : IDisposable
         }
 
         DropSharedFrame();
+        if (_swsCtx != null)
+        {
+            ffmpeg.sws_freeContext(_swsCtx);
+            _swsCtx = null;
+        }
         _cts.Dispose();
     }
 }

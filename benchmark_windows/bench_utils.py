@@ -15,9 +15,13 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 IS_WINDOWS = platform.system().lower() == "windows"
-
-# Project root is parent of benchmark_windows/
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 LOG_DIR = ROOT_DIR / "logs"
 BASELINE_FILE = LOG_DIR / "system_baseline.json"
 
@@ -330,7 +334,6 @@ def kill_all_benchmark_processes() -> None:
         "rtsp-stress-test-csharp-gpu",
         "electron",
         "node",
-        "ffmpeg",
         "dotnet",
     ]
 
@@ -378,18 +381,23 @@ def archive_logs(framework: str, hardware_mode: str) -> Path:
 
 
 def check_rtsp_stream_reachability(url: str, timeout: float = 2.5) -> bool:
-    """Probe if RTSP server host and port are reachable before benchmark starts."""
+    """Probe if RTSP server host, port, and stream path are reachable and returning 200 OK."""
     import socket
     try:
-        clean = url.replace("rtsp://", "").split("/")[0]
+        probe_url = url.replace("%d", "0") if "%d" in url else url
+        clean = probe_url.replace("rtsp://", "").split("/")[0]
         if ":" in clean:
             host, port_str = clean.split(":")
             port = int(port_str)
         else:
             host = clean
             port = 8554
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
+        with socket.create_connection((host, port), timeout=timeout) as s:
+            req = f"DESCRIBE {probe_url} RTSP/1.0\r\nCSeq: 1\r\nAccept: application/sdp\r\n\r\n"
+            s.sendall(req.encode("latin1"))
+            s.settimeout(timeout)
+            resp = s.recv(1024).decode("latin1", errors="replace")
+            return "200 OK" in resp or "RTSP/1.0 200" in resp
     except Exception:
         return False
 
@@ -412,6 +420,170 @@ def restore_all_rtsp_cameras() -> None:
                 pass
     except Exception:
         pass
+
+
+def switch_to_default_desktop() -> bool:
+    """Ensure the current thread is bound to the interactive WinSta0\\Default desktop."""
+    if not IS_WINDOWS:
+        return True
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        DESKTOP_ALL = 0x1FF
+        hDesk = user32.OpenDesktopW("Default", 0, False, DESKTOP_ALL)
+        if hDesk:
+            return bool(user32.SetThreadDesktop(hDesk))
+    except Exception:
+        pass
+    return False
+
+
+def ensure_window_foreground(pid: int) -> None:
+    """Monitor for the visible window of pid (or child processes) and bring it to top/maximize."""
+    if not IS_WINDOWS:
+        return
+    switch_to_default_desktop()
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        pids = {pid}
+        try:
+            import psutil
+            p = psutil.Process(pid)
+            pids.update(c.pid for c in p.children(recursive=True))
+        except Exception:
+            pass
+
+        def enum_cb(hwnd, lparam):
+            w_pid = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(w_pid))
+            if w_pid.value in pids and user32.IsWindowVisible(hwnd):
+                title = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(hwnd, title, 256)
+                if title.value:
+                    user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+                    user32.BringWindowToTop(hwnd)
+                    user32.SetForegroundWindow(hwnd)
+            return True
+
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        cb = WNDENUMPROC(enum_cb)
+        for _ in range(16):
+            time.sleep(0.5)
+            try:
+                import psutil
+                p = psutil.Process(pid)
+                pids.update(c.pid for c in p.children(recursive=True))
+            except Exception:
+                pass
+            user32.EnumWindows(cb, 0)
+    except Exception:
+        pass
+
+
+if IS_WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    class STARTUPINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("lpReserved", wintypes.LPWSTR),
+            ("lpDesktop", wintypes.LPWSTR),
+            ("lpTitle", wintypes.LPWSTR),
+            ("dwX", wintypes.DWORD),
+            ("dwY", wintypes.DWORD),
+            ("dwXSize", wintypes.DWORD),
+            ("dwYSize", wintypes.DWORD),
+            ("dwXCountChars", wintypes.DWORD),
+            ("dwYCountChars", wintypes.DWORD),
+            ("dwFillAttribute", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("wShowWindow", wintypes.WORD),
+            ("cbReserved2", wintypes.WORD),
+            ("lpReserved2", ctypes.c_char_p),
+            ("hStdInput", wintypes.HANDLE),
+            ("hStdOutput", wintypes.HANDLE),
+            ("hStdError", wintypes.HANDLE),
+        ]
+
+    class PROCESS_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("hProcess", wintypes.HANDLE),
+            ("hThread", wintypes.HANDLE),
+            ("dwProcessId", wintypes.DWORD),
+            ("dwThreadId", wintypes.DWORD),
+        ]
+
+    class DesktopProcess:
+        """Spawn and manage a Windows GUI process explicitly pinned to WinSta0\\Default."""
+        def __init__(self, cmd: list[str], cwd: Path, env: Optional[dict[str, str]] = None):
+            cmd_str = subprocess.list2cmdline(cmd)
+            si = STARTUPINFOW()
+            si.cb = ctypes.sizeof(STARTUPINFOW)
+            si.lpDesktop = r"WinSta0\Default"
+            si.dwFlags = 1  # STARTF_USESHOWWINDOW
+            si.wShowWindow = 3  # SW_SHOWMAXIMIZED
+            pi = PROCESS_INFORMATION()
+
+            old_env = os.environ.copy()
+            if env:
+                os.environ.update(env)
+            try:
+                res = ctypes.windll.kernel32.CreateProcessW(
+                    None,
+                    cmd_str,
+                    None,
+                    None,
+                    False,
+                    0x00000200,  # CREATE_NEW_PROCESS_GROUP
+                    None,
+                    str(cwd),
+                    ctypes.byref(si),
+                    ctypes.byref(pi),
+                )
+            finally:
+                os.environ.clear()
+                os.environ.update(old_env)
+
+            if not res:
+                err = ctypes.windll.kernel32.GetLastError()
+                raise RuntimeError(f"CreateProcessW failed with error {err} for command: {cmd_str}")
+
+            self._hProcess = pi.hProcess
+            self._hThread = pi.hThread
+            self.pid = pi.dwProcessId
+            self._returncode: Optional[int] = None
+
+        def poll(self) -> Optional[int]:
+            if self._returncode is not None:
+                return self._returncode
+            exit_code = wintypes.DWORD()
+            STILL_ACTIVE = 259
+            if ctypes.windll.kernel32.GetExitCodeProcess(self._hProcess, ctypes.byref(exit_code)):
+                if exit_code.value != STILL_ACTIVE:
+                    self._returncode = int(exit_code.value)
+                    return self._returncode
+            return None
+
+        def terminate(self) -> None:
+            if self.poll() is None:
+                ctypes.windll.kernel32.TerminateProcess(self._hProcess, 1)
+                self._returncode = 1
+
+        def wait(self, timeout: float = 5.0) -> Optional[int]:
+            ms = int(timeout * 1000)
+            ctypes.windll.kernel32.WaitForSingleObject(self._hProcess, ms)
+            return self.poll()
+
+        def __del__(self):
+            try:
+                if hasattr(self, "_hProcess") and self._hProcess:
+                    ctypes.windll.kernel32.CloseHandle(self._hProcess)
+                if hasattr(self, "_hThread") and self._hThread:
+                    ctypes.windll.kernel32.CloseHandle(self._hThread)
+            except Exception:
+                pass
 
 
 def execute_benchmark_session(
@@ -437,7 +609,7 @@ def execute_benchmark_session(
     print("----------------------------------------------------------")
 
     # Probe RTSP stream endpoint
-    rtsp_url = "rtsp://127.0.0.1:8554/live"
+    rtsp_url = "rtsp://127.0.0.1:8554/cam%d"
     if "--url" in cmd:
         try:
             rtsp_url = cmd[cmd.index("--url") + 1]
@@ -448,7 +620,17 @@ def execute_benchmark_session(
 
     if not check_rtsp_stream_reachability(rtsp_url):
         print(f"[!] NOTICE: RTSP endpoint {rtsp_url} is not responding to TCP ping.")
-        print("    If using a local RTSP server, make sure it is running (e.g. MediaMTX).")
+        if "127.0.0.1" in rtsp_url or "localhost" in rtsp_url:
+            print("[*] Attempting to auto-start/recover local MediaMTX server...", flush=True)
+            subprocess.run(
+                [sys.executable, str(ROOT_DIR / "benchmark_windows" / "00start_rtsp_server.py")],
+                cwd=str(ROOT_DIR),
+                check=False,
+            )
+        if not check_rtsp_stream_reachability(rtsp_url):
+            print("    [!] WARNING: Local RTSP server is still unreachable.")
+        else:
+            print("[✓] Local RTSP server successfully verified online.")
 
     # Ensure all camera streams are restored to origin for Phase 1
     restore_all_rtsp_cameras()
@@ -483,18 +665,18 @@ def execute_benchmark_session(
     start_time = time.time()
 
     try:
-        kwargs = {}
         if IS_WINDOWS:
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(cwd),
-            env=env,
-            shell=False,
-            **kwargs,
-        )
+            proc = DesktopProcess(cmd, cwd, env)
+        else:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(cwd),
+                env=env,
+                shell=False,
+            )
         print(f"[✓] Process started with PID: {proc.pid}")
+        if IS_WINDOWS:
+            threading.Thread(target=ensure_window_foreground, args=(proc.pid,), daemon=True).start()
 
         # Start external OS hardware telemetry monitor
         hw_csv_path = LOG_DIR / "hardware_metrics.csv"

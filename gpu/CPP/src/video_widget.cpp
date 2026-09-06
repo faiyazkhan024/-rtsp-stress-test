@@ -119,11 +119,6 @@ void VideoWidget::paintGL() {
     if (frame && frame->width > 0 && frame->height > 0) {
         renderFrame(frame, isNew);
     }
-}
-
-void VideoWidget::paintEvent(QPaintEvent* event) {
-    // 1. Render OpenGL scene
-    QOpenGLWidget::paintEvent(event);
 
     float fps = m_worker ? m_worker->currentFps() : 0.0f;
     bool isConnected = m_worker && m_worker->isConnected();
@@ -156,7 +151,6 @@ void VideoWidget::paintEvent(QPaintEvent* event) {
         cachePainter.end();
     }
 
-    // 2. Blit pre-rendered HUD overlay in single fast operation
     QPainter painter(this);
     painter.drawPixmap(0, 0, m_hudCache);
     painter.end();
@@ -227,6 +221,10 @@ void VideoWidget::renderFrame(AVFrame* frame, bool uploadTexture) {
         }
     }
 #endif
+
+    if (frame->format == AV_PIX_FMT_CUDA || frame->format == AV_PIX_FMT_D3D11 || frame->format == AV_PIX_FMT_VAAPI) {
+        return;
+    }
 
     // Tri-planar YUV420P (hardware or fallback planar YUV)
     if (frame->format == AV_PIX_FMT_YUV420P || (frame->data[0] && frame->data[1] && frame->data[2])) {

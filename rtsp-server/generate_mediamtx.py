@@ -12,7 +12,7 @@ FFMPEG = (
     "-g 25 -bf 0 -x264-params repeat-headers=1:keyint=25:min-keyint=25 "
     "-bsf:v h264_mp4toannexb,dump_extra=freq=keyframe "
     "-b:v 4M -maxrate 4M -bufsize 2M "
-    "-f rtsp -rtsp_transport tcp rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH"
+    "-f rtsp -rtsp_transport tcp rtsp://127.0.0.1:8554/origin"
 )
 
 print(

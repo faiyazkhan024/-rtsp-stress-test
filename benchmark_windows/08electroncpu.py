@@ -19,7 +19,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run Electron CPU Benchmark (Headed UI Mode)")
     parser.add_argument("--duration", type=float, default=60.0, help="Total test duration in minutes (default: 60.0)")
     parser.add_argument("--phase1", type=float, default=30.0, help="Phase 1 steady-state minutes (default: 30.0)")
-    parser.add_argument("--url", type=str, default="rtsp://127.0.0.1:8554/live", help="RTSP target stream URL")
+    parser.add_argument("--url", type=str, default="rtsp://127.0.0.1:8554/cam%d", help="RTSP target stream URL")
     parser.add_argument("--streams", type=int, default=30, help="Number of concurrent video tiles (default: 30)")
     args = parser.parse_args()
 
@@ -28,6 +28,7 @@ def main() -> None:
 
     extra_env = {
         "RTSP_URL": args.url,
+        "RTSP_URL_PATTERN": args.url if "%d" in args.url else "",
         "STREAM_COUNT": str(args.streams),
         "ELECTRON_ENABLE_LOGGING": "1",
     }

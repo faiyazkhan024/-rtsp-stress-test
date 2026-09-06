@@ -49,8 +49,10 @@ function resolveIsHeadless(): boolean {
 }
 
 export function getRtspUrlForStream(index: number): string {
-  if (config.rtspUrlPattern) {
-    return config.rtspUrlPattern.replace('%d', index.toString());
+  const pattern = config.rtspUrlPattern || (config.rtspUrl && config.rtspUrl.includes('%d') ? config.rtspUrl : undefined);
+  if (pattern) {
+    return pattern.replace('%d', index.toString());
   }
   return config.rtspUrl;
 }
+

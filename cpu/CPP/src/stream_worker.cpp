@@ -9,10 +9,12 @@ static int ffmpeg_interrupt_callback(void* opaque) {
     return (worker && worker->isInterrupted()) ? 1 : 0;
 }
 
-StreamWorker::StreamWorker(int streamId, const std::string& rtspUrl, QObject* parent)
+StreamWorker::StreamWorker(int streamId, const std::string& rtspUrl, int targetWidth, int targetHeight, QObject* parent)
     : QThread(parent)
     , m_streamId(streamId)
     , m_rtspUrl(rtspUrl)
+    , m_targetWidth(targetWidth)
+    , m_targetHeight(targetHeight)
 {
     setObjectName(QString("StreamWorker-%1").arg(streamId));
 }
@@ -40,7 +42,9 @@ bool StreamWorker::isInterrupted() const {
 }
 
 void StreamWorker::ensureBuffers(int width, int height) {
-    size_t required = (size_t)width * height * 4;
+    int dstW = (m_targetWidth > 0) ? m_targetWidth : width;
+    int dstH = (m_targetHeight > 0) ? m_targetHeight : height;
+    size_t required = (size_t)dstW * dstH * 4;
     if (required > m_bufferCapacity || !m_buffers[0]) {
         freeBuffers();
         for (int i = 0; i < 3; ++i) {
@@ -50,8 +54,8 @@ void StreamWorker::ensureBuffers(int width, int height) {
             }
         }
         m_bufferCapacity = required;
-        m_width.store(width, std::memory_order_release);
-        m_height.store(height, std::memory_order_release);
+        m_width.store(dstW, std::memory_order_release);
+        m_height.store(dstH, std::memory_order_release);
     }
 }
 
@@ -66,12 +70,14 @@ void StreamWorker::freeBuffers() {
 }
 
 void StreamWorker::ensureSwsContext(int width, int height, int format) {
+    int dstW = (m_targetWidth > 0) ? m_targetWidth : width;
+    int dstH = (m_targetHeight > 0) ? m_targetHeight : height;
     if (!m_swsCtx || m_swsWidth != width || m_swsHeight != height || m_swsFormat != format) {
         freeSwsContext();
         m_swsCtx = sws_getContext(
             width, height, static_cast<AVPixelFormat>(format),
-            width, height, AV_PIX_FMT_RGB32,
-            SWS_BILINEAR, nullptr, nullptr, nullptr
+            dstW, dstH, AV_PIX_FMT_RGB32,
+            SWS_FAST_BILINEAR, nullptr, nullptr, nullptr
         );
         m_swsWidth = width;
         m_swsHeight = height;
@@ -234,8 +240,9 @@ void StreamWorker::run() {
                         ensureSwsContext(w, h, frame->format);
 
                         if (m_buffers[m_producerIndex] && m_swsCtx) {
+                            int dstW = (m_targetWidth > 0) ? m_targetWidth : w;
                             uint8_t* dstData[4] = { m_buffers[m_producerIndex], nullptr, nullptr, nullptr };
-                            int dstLinesize[4] = { w * 4, 0, 0, 0 };
+                            int dstLinesize[4] = { dstW * 4, 0, 0, 0 };
 
                             sws_scale(
                                 m_swsCtx,

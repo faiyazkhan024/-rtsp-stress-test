@@ -36,6 +36,7 @@ public class VideoImageControl : Control
                     var y = (bounds.Height - h) / 2;
 
                     context.DrawImage(bmp, new Rect(x, y, w, h));
+                    _worker.ResetNewFrame();
 
                     // Effective FPS Standard: Only increment if new Presentation Timestamp (PTS)
                     var curPts = _worker.CurrentPts;
@@ -96,17 +97,18 @@ public partial class VideoTileControl : UserControl
         }
 
         _videoImage?.AttachWorker(worker);
-
-        worker.FrameRendered += OnFrameRendered;
     }
 
-    private void OnFrameRendered()
+    public void RequestRenderIfDirty()
     {
-        _videoImage?.InvalidateVisual();
-
-        if (_connectingText != null && _connectingText.IsVisible && (_worker?.PaintedFrames > 0 || _worker?.DecodedFrames > 0))
+        if (_worker != null && _worker.HasNewFrame)
         {
-            _connectingText.IsVisible = false;
+            _videoImage?.InvalidateVisual();
+
+            if (_connectingText != null && _connectingText.IsVisible && (_worker.PaintedFrames > 0 || _worker.DecodedFrames > 0))
+            {
+                _connectingText.IsVisible = false;
+            }
         }
     }
 

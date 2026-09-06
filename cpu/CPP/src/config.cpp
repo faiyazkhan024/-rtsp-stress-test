@@ -3,7 +3,12 @@
 #include <iostream>
 #include <cstdlib>
 #include <filesystem>
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -53,6 +58,14 @@ AppConfig AppConfig::loadFromArgsAndEnv(int argc, char* argv[]) {
         int c = std::atoi(envCount);
         if (c > 0) config.streamCount = c;
     }
+    if (const char* envW = std::getenv("RENDER_WIDTH")) {
+        int w = std::atoi(envW);
+        if (w > 0) config.renderWidth = w;
+    }
+    if (const char* envH = std::getenv("RENDER_HEIGHT")) {
+        int h = std::atoi(envH);
+        if (h > 0) config.renderHeight = h;
+    }
     if (const char* envLog = std::getenv("FPS_METRICS_LOG_PATH")) {
         config.logPath = envLog;
     } else if (const char* envLogDir = std::getenv("BENCHMARK_LOG_DIR")) {
@@ -62,9 +75,16 @@ AppConfig AppConfig::loadFromArgsAndEnv(int argc, char* argv[]) {
         config.machineId = envMachine;
     } else {
         char hostname[256] = {0};
+#if defined(_WIN32)
+        DWORD size = sizeof(hostname);
+        if (GetComputerNameA(hostname, &size) && hostname[0] != '\0') {
+            config.machineId = hostname;
+        }
+#else
         if (gethostname(hostname, sizeof(hostname) - 1) == 0 && hostname[0] != '\0') {
             config.machineId = hostname;
         }
+#endif
     }
 
     // 2. Parse Command Line Arguments

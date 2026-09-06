@@ -5,11 +5,18 @@ namespace RtspStressTest;
 
 public static class Program
 {
+    [System.Runtime.InteropServices.DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
+    private static extern uint TimeBeginPeriod(uint uMilliseconds);
+
     [STAThread]
     public static int Main(string[] args)
     {
         try
         {
+            if (OperatingSystem.IsWindows())
+            {
+                TimeBeginPeriod(1);
+            }
             Console.WriteLine("===============================================================");
             Console.WriteLine(" 6-Hour RTSP 30-Video Grid Benchmark (C# Avalonia GPU Decode) ");
             Console.WriteLine("===============================================================");

@@ -26,7 +26,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run C++ Qt6 GPU Benchmark (Headed UI Mode)")
     parser.add_argument("--duration", type=float, default=20.0, help="Total test duration in minutes (default: 20.0)")
     parser.add_argument("--phase1", type=float, default=10.0, help="Phase 1 steady-state minutes (default: 10.0)")
-    parser.add_argument("--url", type=str, default="rtsp://127.0.0.1:8554/live", help="RTSP target stream URL")
+    parser.add_argument("--url", type=str, default="rtsp://127.0.0.1:8554/cam%d", help="RTSP target stream URL")
     parser.add_argument("--streams", type=int, default=30, help="Number of concurrent video tiles (default: 30)")
     parser.add_argument("--hw-accel", type=str, default="auto", help="Hardware acceleration backend (default: auto)")
     args = parser.parse_args()

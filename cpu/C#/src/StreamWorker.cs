@@ -25,7 +25,6 @@ public sealed unsafe class StreamWorker : IDisposable
     private volatile bool _hasNewFrame;
 
     private WriteableBitmap? _writeableBitmap;
-    private byte[]? _managedRgbBuffer;
 
     private readonly int _targetWidth;
     private readonly int _targetHeight;
@@ -80,6 +79,9 @@ public sealed unsafe class StreamWorker : IDisposable
         Interlocked.Increment(ref _paintedFrames);
     }
 
+    public bool HasNewFrame => _hasNewFrame;
+    public void ResetNewFrame() => _hasNewFrame = false;
+
     public event Action? FrameRendered;
 
     public StreamWorker(int streamId, string rtspUrl, int targetWidth = 0, int targetHeight = 0)
@@ -115,9 +117,6 @@ public sealed unsafe class StreamWorker : IDisposable
                 PixelFormat.Rgba8888,
                 AlphaFormat.Opaque
             );
-
-            // Pre-allocate managed byte[] buffer (GC caution: zero allocation in render loop)
-            _managedRgbBuffer = new byte[width * height * 4];
         }
     }
 
@@ -303,17 +302,24 @@ public sealed unsafe class StreamWorker : IDisposable
                             EnsureBuffers(dstW, dstH);
                             EnsureSwsContext(w, h, (AVPixelFormat)frame->format, dstW, dstH);
 
-                            if (_managedRgbBuffer != null && _writeableBitmap != null && _swsContext != null)
+                            if (_writeableBitmap != null && _swsContext != null)
                             {
-                                fixed (byte* pDst = _managedRgbBuffer)
+                                for (uint i = 0; i < 8; i++)
                                 {
-                                    for (uint i = 0; i < 8; i++)
+                                    _srcData[i] = frame->data[i];
+                                    _srcStride[i] = frame->linesize[i];
+                                }
+
+                                // Direct zero-copy scale into locked WriteableBitmap surface
+                                using (var fb = _writeableBitmap.Lock())
+                                {
+                                    _dstData[0] = (byte*)fb.Address;
+                                    _dstStride[0] = fb.RowBytes;
+                                    for (uint i = 1; i < 8; i++)
                                     {
-                                        _srcData[i] = frame->data[i];
-                                        _srcStride[i] = frame->linesize[i];
+                                        _dstData[i] = null;
+                                        _dstStride[i] = 0;
                                     }
-                                    _dstData[0] = pDst;
-                                    _dstStride[0] = dstW * 4;
 
                                     ffmpeg.sws_scale(
                                         _swsContext,
@@ -324,26 +330,12 @@ public sealed unsafe class StreamWorker : IDisposable
                                         _dstData,
                                         _dstStride
                                     );
-
-                                    // Move pixels into WriteableBitmap rendering buffer using Lock() and Buffer.MemoryCopy
-                                    using (var fb = _writeableBitmap.Lock())
-                                    {
-                                        Buffer.MemoryCopy(
-                                            pDst,
-                                            (void*)fb.Address,
-                                            (long)fb.RowBytes * dstH,
-                                            (long)dstW * 4 * dstH
-                                        );
-                                    }
                                 }
 
                                 var pts = frame->pts != ffmpeg.AV_NOPTS_VALUE ? frame->pts : frame->best_effort_timestamp;
                                 Interlocked.Exchange(ref _currentPts, pts);
                                 Interlocked.Increment(ref _decodedFrames);
                                 _hasNewFrame = true;
-
-                                // Coalesced render request to UI thread to prevent dispatcher flooding
-                                RequestRender();
                             }
                         }
 

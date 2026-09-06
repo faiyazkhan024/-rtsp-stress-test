@@ -21,11 +21,11 @@ MainWindow::MainWindow(const AppConfig& config, QWidget* parent)
     setupUi();
     startWorkers();
 
-    // Decoupled master rendering timer: 30 FPS window repaint without event queue choking
+    // Decoupled master rendering timer: 60 Hz polling of workers' dirty flag
     m_renderTimer = new QTimer(this);
+    m_renderTimer->setTimerType(Qt::PreciseTimer);
     connect(m_renderTimer, &QTimer::timeout, this, &MainWindow::onRenderTick);
-    int renderIntervalMs = std::max(10, 1000 / m_config.renderFps);
-    m_renderTimer->start(renderIntervalMs);
+    m_renderTimer->start(15);
 
     // Master telemetry timer: 1-second interval FPS tick & rolling window management
     m_telemetryTimer = new QTimer(this);
@@ -120,7 +120,7 @@ void MainWindow::setupUi() {
     m_videoWidgets.reserve(totalStreams);
 
     for (int i = 0; i < totalStreams; ++i) {
-        auto* worker = new StreamWorker(i, m_config.urlForStream(i), this);
+        auto* worker = new StreamWorker(i, m_config.urlForStream(i), m_config.renderWidth, m_config.renderHeight, this);
         m_workers.push_back(worker);
 
         auto* widget = new VideoWidget(i, worker, gridContainer);
@@ -161,9 +161,10 @@ void MainWindow::stopWorkers() {
 }
 
 void MainWindow::onRenderTick() {
-    // Repaint all widgets via decoupled timer tick (zero cross-thread event spam)
     for (auto* widget : m_videoWidgets) {
-        widget->update();
+        if (widget && widget->hasNewFrame()) {
+            widget->update();
+        }
     }
 }
 
