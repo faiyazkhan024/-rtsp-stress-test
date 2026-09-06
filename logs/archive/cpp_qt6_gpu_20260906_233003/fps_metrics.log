@@ -1,0 +1,418 @@
+{
+    "active_streams": 30,
+    "decoded_frames": 27497,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1682,
+            "5_to_9_fps": 56,
+            "under_5_fps": 32
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:41:01Z",
+    "ui_frames": 27456,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 28009,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1745,
+            "5_to_9_fps": 52,
+            "under_5_fps": 3
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:42:01Z",
+    "ui_frames": 28010,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 28446,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1758,
+            "5_to_9_fps": 40,
+            "under_5_fps": 2
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:43:01Z",
+    "ui_frames": 28445,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 28480,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1760,
+            "5_to_9_fps": 38,
+            "under_5_fps": 2
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:44:01Z",
+    "ui_frames": 28481,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 28548,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1754,
+            "5_to_9_fps": 43,
+            "under_5_fps": 3
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:45:01Z",
+    "ui_frames": 28545,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 28122,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1741,
+            "5_to_9_fps": 56,
+            "under_5_fps": 3
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:46:02Z",
+    "ui_frames": 28125,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 27927,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1730,
+            "5_to_9_fps": 64,
+            "under_5_fps": 6
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:47:02Z",
+    "ui_frames": 27929,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 27988,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1737,
+            "5_to_9_fps": 63,
+            "under_5_fps": 0
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:48:02Z",
+    "ui_frames": 27986,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 28071,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1727,
+            "5_to_9_fps": 69,
+            "under_5_fps": 4
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:49:02Z",
+    "ui_frames": 28071,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 27962,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1723,
+            "5_to_9_fps": 73,
+            "under_5_fps": 1
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:50:03Z",
+    "ui_frames": 27966,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 28778,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1723,
+            "5_to_9_fps": 46,
+            "under_5_fps": 5
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:51:03Z",
+    "ui_frames": 28773,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 28,
+    "decoded_frames": 28934,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 192,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1474,
+            "5_to_9_fps": 35,
+            "under_5_fps": 2
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:52:03Z",
+    "ui_frames": 28937,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 29,
+    "decoded_frames": 28531,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1686,
+            "5_to_9_fps": 67,
+            "under_5_fps": 5
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:53:03Z",
+    "ui_frames": 28529,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 28,
+    "decoded_frames": 28752,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 245,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1389,
+            "5_to_9_fps": 57,
+            "under_5_fps": 7
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:54:04Z",
+    "ui_frames": 28754,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 30,
+    "decoded_frames": 28570,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1729,
+            "5_to_9_fps": 45,
+            "under_5_fps": 1
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:55:04Z",
+    "ui_frames": 28566,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 28,
+    "decoded_frames": 29218,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 352,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1283,
+            "5_to_9_fps": 24,
+            "under_5_fps": 1
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:56:04Z",
+    "ui_frames": 29217,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 29,
+    "decoded_frames": 29007,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 9,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1706,
+            "5_to_9_fps": 42,
+            "under_5_fps": 3
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:57:04Z",
+    "ui_frames": 29007,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 29,
+    "decoded_frames": 29212,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 218,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1450,
+            "5_to_9_fps": 52,
+            "under_5_fps": 4
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:58:04Z",
+    "ui_frames": 29210,
+    "window_duration_seconds": 60
+}
+
+{
+    "active_streams": 29,
+    "decoded_frames": 28632,
+    "fps_stream_seconds": {
+        "acceptable": {
+            "20_to_24_fps": 0,
+            "25_to_30_fps": 0
+        },
+        "unacceptable": {
+            "10_to_19_fps": 1705,
+            "5_to_9_fps": 53,
+            "under_5_fps": 4
+        }
+    },
+    "framework": "cpp_qt6",
+    "hardware_mode": "gpu",
+    "machine_id": "PC-B650S",
+    "timestamp": "2026-09-06T17:59:05Z",
+    "ui_frames": 28636,
+    "window_duration_seconds": 60
+}
+
