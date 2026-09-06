@@ -15,7 +15,7 @@ MainWindow::MainWindow(const AppConfig& config, QWidget* parent)
 {
     setWindowTitle(QString("RTSP Video Grid Benchmark (C++ Qt6 CPU Software Decode) - %1 Streams")
                        .arg(m_config.streamCount));
-    resize(1920, 1080);
+    resize(2560, 1440);
     setStyleSheet("background-color: #090d16; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;");
 
     setupUi();

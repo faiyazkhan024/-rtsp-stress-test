@@ -176,6 +176,6 @@ fn main() -> iced::Result {
     .title("RTSP 30-Stream Video Grid Benchmark (Rust Iced GPU Zero-Copy - iced_wgpu)")
     .subscription(BenchmarkApp::subscription)
     .theme(BenchmarkApp::theme)
-    .window_size(Size::new(1920.0, 1080.0))
+    .window_size(Size::new(2560.0, 1440.0))
     .run()
 }

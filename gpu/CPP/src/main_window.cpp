@@ -19,7 +19,7 @@ MainWindow::MainWindow(const AppConfig& config,
     setWindowTitle(QString("6-Hour RTSP Video Grid Benchmark (C++ Qt6 GPU Zero-Copy Hardware Decode [%1]) - %2 Streams")
                        .arg(QString::fromStdString(hwDesc).toUpper())
                        .arg(m_config.streamCount));
-    resize(1920, 1080);
+    resize(2560, 1440);
     setStyleSheet("background-color: #090d16; color: #f8fafc;");
 
     setupUi();
