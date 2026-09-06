@@ -355,7 +355,7 @@ void VideoWidget::drawHudOverlay(QPainter& painter, int frameWidth, int frameHei
     painter.setFont(hudFont);
 
     QString camStr = QString("CAM %1").arg(m_streamId + 1, 2, 10, QChar('0'));
-    QString resStr = (frameWidth > 0 && frameHeight > 0) ? QString("%1x%2").arg(frameWidth).arg(frameHeight) : QString("1440p");
+    QString resStr = (frameWidth > 0 && frameHeight > 0) ? QString("%1x%2").arg(frameWidth).arg(frameHeight) : QString("2560x1440");
     QString fpsStr = QString("%1 FPS").arg(fps, 0, 'f', 1);
     QString hwStr = isHw ? QString::fromStdString(m_worker->hwDeviceName()).toUpper() : "GPU";
 

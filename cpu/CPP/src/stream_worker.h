@@ -39,6 +39,9 @@ public:
     void setCurrentFps(float fps) { m_currentFps.store(fps, std::memory_order_relaxed); }
     bool hasNewFrame() const { return m_hasNewFrame.load(std::memory_order_relaxed); }
 
+    int sourceWidth() const { return m_sourceWidth.load(std::memory_order_relaxed); }
+    int sourceHeight() const { return m_sourceHeight.load(std::memory_order_relaxed); }
+
 protected:
     void run() override;
 
@@ -54,6 +57,9 @@ private:
     int m_targetHeight = 360;
     std::atomic<bool> m_stopRequested{false};
     std::atomic<bool> m_isConnected{false};
+
+    std::atomic<int> m_sourceWidth{2560};
+    std::atomic<int> m_sourceHeight{1440};
 
     // Pre-allocated triple buffer for RGB32 video frames
     uint8_t* m_buffers[3] = {nullptr, nullptr, nullptr};

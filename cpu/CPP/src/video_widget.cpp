@@ -60,7 +60,9 @@ void VideoWidget::paintEvent(QPaintEvent* /*event*/) {
     painter.setFont(hudFont);
 
     QString camStr = QString("CAM %1").arg(m_streamId + 1, 2, 10, QChar('0'));
-    QString resStr = (w > 0 && h > 0) ? QString("%1x%2").arg(w).arg(h) : QString("1440p");
+    int sw = m_worker ? m_worker->sourceWidth() : 2560;
+    int sh = m_worker ? m_worker->sourceHeight() : 1440;
+    QString resStr = (sw > 0 && sh > 0) ? QString("%1x%2").arg(sw).arg(sh) : QString("2560x1440");
     QString fpsStr = QString("%1 FPS").arg(fps, 0, 'f', 1);
 
     QString badgeText = QString("%1  |  %2  |  %3").arg(camStr, resStr, fpsStr);

@@ -236,6 +236,8 @@ void StreamWorker::run() {
                     int w = frame->width;
                     int h = frame->height;
                     if (w > 0 && h > 0) {
+                        m_sourceWidth.store(w, std::memory_order_relaxed);
+                        m_sourceHeight.store(h, std::memory_order_relaxed);
                         ensureBuffers(w, h);
                         ensureSwsContext(w, h, frame->format);
 

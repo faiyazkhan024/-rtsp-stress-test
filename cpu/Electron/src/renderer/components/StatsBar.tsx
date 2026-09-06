@@ -33,7 +33,7 @@ export const StatsBar: React.FC<StatsBarProps> = ({ stats }) => {
       <div className="stats-title-group">
         <span className="benchmark-badge">Electron</span>
         <span className="hardware-badge-cpu">CPU Software</span>
-        <span className="stats-title">{stats.activeStreams} RTSP Streams Grid</span>
+        <span className="stats-title">{stats.activeStreams} RTSP Streams Grid (2560×1440 1440p)</span>
       </div>
 
       <div className="metrics-row">

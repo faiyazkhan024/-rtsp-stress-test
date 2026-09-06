@@ -354,6 +354,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
       <div className="player-overlay">
         <span ref={statusDotRef} className="status-dot waiting" />
         <span className="stream-id-tag">CH-{String(streamId + 1).padStart(2, '0')}</span>
+        <span className="res-tag" style={{ fontSize: '10px', color: '#94a3b8', background: 'rgba(0,0,0,0.5)', padding: '1px 4px', borderRadius: '3px' }}>2560x1440</span>
         <span ref={fpsBadgeRef} className="fps-badge warning">0 FPS</span>
       </div>
       <canvas ref={canvasRef} className="video-canvas" />

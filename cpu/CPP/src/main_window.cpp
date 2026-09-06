@@ -53,7 +53,7 @@ void MainWindow::setupUi() {
     topLayout->setSpacing(16);
 
     // Title / Framework Badge
-    auto* titleLabel = new QLabel("<b>RTSP 30-CAMERA GRID</b> <span style='color: #60a5fa;'>Qt6 CPU Benchmark</span>", this);
+    auto* titleLabel = new QLabel("<b>RTSP 30-CAMERA GRID</b> <span style='color: #60a5fa;'>Qt6 CPU Benchmark</span> <span style='background: #1e293b; color: #38bdf8; padding: 2px 6px; border-radius: 4px; font-size: 11px;'>2560×1440 (1440p)</span>", this);
     titleLabel->setStyleSheet("font-size: 13px;");
     topLayout->addWidget(titleLabel);
 
