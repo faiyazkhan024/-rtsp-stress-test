@@ -12,7 +12,7 @@ export const VideoGrid: React.FC<VideoGridProps> = ({ streamCount, wsPort, playe
   const params = new URLSearchParams(window.location.search);
   const rendererMode = params.get('renderer')
     || (window as any).electronBenchmark?.renderer
-    || 'decoupled';
+    || 'unified';
 
   if (rendererMode === 'unified' || rendererMode === 'webgpu') {
     return (

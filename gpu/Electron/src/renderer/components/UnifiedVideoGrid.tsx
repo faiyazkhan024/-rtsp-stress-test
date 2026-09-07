@@ -21,54 +21,8 @@ interface StreamState {
   currentCodec: string;
   decoder: VideoDecoder | null;
   ws: WebSocket | null;
-  currentFrame: VideoFrame | null;
   pendingFrame: VideoFrame | null;
-  fpsBadge: HTMLSpanElement | null;
-  statusDot: HTMLSpanElement | null;
-  placeholder: HTMLDivElement | null;
 }
-
-const WGSL_SHADER = `
-struct VertexOutput {
-  @builtin(position) pos: vec4f,
-  @location(0) uv: vec2f,
-};
-
-struct Uniforms {
-  rect: vec4f, // x, y, width, height in NDC coordinates [-1, 1]
-};
-
-@group(0) @binding(0) var mySampler: sampler;
-@group(0) @binding(1) var myTexture: texture_external;
-@group(0) @binding(2) var<uniform> uniforms: Uniforms;
-
-@vertex
-fn vs_main(@builtin(vertex_index) vid: u32) -> VertexOutput {
-  var pos = array<vec2f, 6>(
-    vec2f(0.0, 0.0),
-    vec2f(1.0, 0.0),
-    vec2f(0.0, 1.0),
-    vec2f(0.0, 1.0),
-    vec2f(1.0, 0.0),
-    vec2f(1.0, 1.0)
-  );
-  let p = pos[vid];
-  var out: VertexOutput;
-  out.pos = vec4f(
-    uniforms.rect.x + p.x * uniforms.rect.z,
-    uniforms.rect.y - p.y * uniforms.rect.w,
-    0.0,
-    1.0
-  );
-  out.uv = p;
-  return out;
-}
-
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-  return textureSampleBaseClampToEdge(myTexture, mySampler, in.uv);
-}
-`;
 
 function getGridDimensions(count: number): { cols: number; rows: number } {
   if (count <= 1) return { cols: 1, rows: 1 };
@@ -82,7 +36,11 @@ function getGridDimensions(count: number): { cols: number; rows: number } {
 export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount, wsPort, playerRefs }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const streamsRef = useRef<StreamState[]>([]);
+
+  // DOM ref maps for UI badges (always safe across renders)
+  const fpsBadgesRef = useRef<Map<number, HTMLSpanElement>>(new Map());
+  const statusDotsRef = useRef<Map<number, HTMLSpanElement>>(new Map());
+  const placeholdersRef = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const { cols, rows } = getGridDimensions(streamCount);
   const streamIndices = Array.from({ length: streamCount }, (_, i) => i);
@@ -93,6 +51,14 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
 
     let isDestroyed = false;
     let rafId: number | null = null;
+
+    // Single 2D hardware-accelerated context (Skia D3D11 OOP rasterization)
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) {
+      console.error('[UnifiedVideoGrid] Failed to acquire 2D canvas context');
+      return;
+    }
+    ctx.imageSmoothingEnabled = false;
 
     // Initialize stream states
     const streams: StreamState[] = streamIndices.map((id) => ({
@@ -109,13 +75,8 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
       currentCodec: '',
       decoder: null,
       ws: null,
-      currentFrame: null,
       pendingFrame: null,
-      fpsBadge: null,
-      statusDot: null,
-      placeholder: null,
     }));
-    streamsRef.current = streams;
 
     // Register playerRefs for telemetry engine
     streams.forEach((stream) => {
@@ -153,23 +114,26 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
           };
         },
         updateFpsDisplay: (fps: number) => {
-          if (stream.fpsBadge) {
-            stream.fpsBadge.textContent = `${fps} FPS`;
-            stream.fpsBadge.className = 'fps-badge ' + (
+          const badge = fpsBadgesRef.current.get(stream.streamId);
+          if (badge) {
+            badge.textContent = `${fps} FPS`;
+            badge.className = 'fps-badge ' + (
               fps >= 25 ? 'acceptable' : fps >= 20 ? 'warning' : 'unacceptable'
             );
           }
-          if (stream.statusDot) {
-            stream.statusDot.className = 'status-dot ' + (fps > 0 ? 'active' : 'waiting');
+          const dot = statusDotsRef.current.get(stream.streamId);
+          if (dot) {
+            dot.className = 'status-dot ' + (fps > 0 ? 'active' : 'waiting');
           }
-          if (stream.placeholder && fps > 0) {
-            stream.placeholder.style.display = 'none';
+          const ph = placeholdersRef.current.get(stream.streamId);
+          if (ph && fps > 0) {
+            ph.style.display = 'none';
           }
         },
       });
     });
 
-    // Helper to find SPS in Annex B buffer and extract codec string
+    // Helper to extract codec string from SPS
     const extractSpsCodec = (data: Uint8Array): string | null => {
       for (let i = 0; i < data.length - 5; i++) {
         let scLen = 0;
@@ -309,9 +273,8 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
       ws.onclose = () => {
         stream.isConnected = false;
         stream.connectedSince = 0;
-        if (!isDestroyed && stream.statusDot) {
-          stream.statusDot.className = 'status-dot offline';
-        }
+        const dot = statusDotsRef.current.get(stream.streamId);
+        if (dot) dot.className = 'status-dot offline';
       };
     });
 
@@ -322,6 +285,7 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
+        ctx.imageSmoothingEnabled = false;
       }
     };
     updateCanvasSize();
@@ -333,190 +297,59 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
       resizeObserver.observe(containerRef.current);
     }
 
-    // Try WebGPU first, with automatic 2D context fallback
-    async function startRenderPipeline() {
-      if (navigator.gpu) {
-        try {
-          const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-          if (adapter) {
-            const device = await adapter.requestDevice();
-            const webgpuCtx = canvas?.getContext('webgpu');
-            if (webgpuCtx) {
-              const format = navigator.gpu.getPreferredCanvasFormat();
-              webgpuCtx.configure({
-                device,
-                format,
-                alphaMode: 'opaque',
-              });
+    console.log('[UnifiedVideoGrid] Single-Canvas 2D Hardware-Accelerated Pipeline running');
 
-              const shaderModule = device.createShaderModule({ code: WGSL_SHADER });
-              const pipeline = device.createRenderPipeline({
-                layout: 'auto',
-                vertex: { module: shaderModule, entryPoint: 'vs_main' },
-                fragment: {
-                  module: shaderModule,
-                  entryPoint: 'fs_main',
-                  targets: [{ format }],
-                },
-                primitive: { topology: 'triangle-list' },
-              });
+    // Single master render loop tied to monitor VSync
+    const renderLoop = () => {
+      if (isDestroyed) return;
+      const now = performance.now();
 
-              const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+      const dpr = window.devicePixelRatio || 1;
+      const pad = 8 * dpr;
+      const gap = 6 * dpr;
+      const totalW = Math.max(1, canvas.width);
+      const totalH = Math.max(1, canvas.height);
+      const tileW = Math.max(1, (totalW - 2 * pad - (cols - 1) * gap) / cols);
+      const tileH = Math.max(1, (totalH - 2 * pad - (rows - 1) * gap) / rows);
 
-              // Allocate uniform buffers for each tile quad
-              const uniformBuffers: GPUBuffer[] = [];
-              const ndcW = 2.0 / cols;
-              const ndcH = 2.0 / rows;
+      for (let i = 0; i < streamCount; i++) {
+        const stream = streams[i];
+        const frame = stream.pendingFrame;
+        if (frame) {
+          stream.pendingFrame = null;
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const x = pad + col * (tileW + gap);
+          const y = pad + row * (tileH + gap);
 
-              for (let i = 0; i < streamCount; i++) {
-                const col = i % cols;
-                const row = Math.floor(i / cols);
-                const ndcX = -1.0 + col * ndcW;
-                const ndcY = 1.0 - row * ndcH;
-
-                const ubuf = device.createBuffer({
-                  size: 16,
-                  usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-                });
-                device.queue.writeBuffer(ubuf, 0, new Float32Array([ndcX, ndcY, ndcW, ndcH]));
-                uniformBuffers.push(ubuf);
-              }
-
-              console.log('[UnifiedVideoGrid] WebGPU Zero-Copy Single-Canvas Pipeline initialized successfully');
-
-              // WebGPU Master Render Loop
-              const renderWebGPU = () => {
-                if (isDestroyed) return;
-
-                // Update frames
-                const now = performance.now();
-                for (const stream of streams) {
-                  if (stream.pendingFrame) {
-                    if (stream.currentFrame) {
-                      stream.currentFrame.close();
-                    }
-                    stream.currentFrame = stream.pendingFrame;
-                    stream.pendingFrame = null;
-
-                    if (stream.lastPresentedTime > 0) {
-                      stream.lastDeltaMs = now - stream.lastPresentedTime;
-                    }
-                    stream.lastPresentedTime = now;
-                    if (!stream.isConnected) {
-                      stream.connectedSince = now;
-                    }
-                    stream.isConnected = true;
-                    stream.frameCount++;
-                    if (stream.placeholder && stream.placeholder.style.display !== 'none') {
-                      stream.placeholder.style.display = 'none';
-                    }
-                  }
-                }
-
-                try {
-                  const commandEncoder = device.createCommandEncoder();
-                  const textureView = webgpuCtx.getCurrentTexture().createView();
-                  const renderPass = commandEncoder.beginRenderPass({
-                    colorAttachments: [
-                      {
-                        view: textureView,
-                        clearValue: { r: 0.035, g: 0.05, b: 0.086, a: 1.0 },
-                        loadOp: 'clear',
-                        storeOp: 'store',
-                      },
-                    ],
-                  });
-
-                  renderPass.setPipeline(pipeline);
-
-                  for (let i = 0; i < streamCount; i++) {
-                    const stream = streams[i];
-                    if (stream && stream.currentFrame && stream.currentFrame.displayWidth > 0) {
-                      try {
-                        const externalTexture = device.importExternalTexture({ source: stream.currentFrame });
-                        const bindGroup = device.createBindGroup({
-                          layout: pipeline.getBindGroupLayout(0),
-                          entries: [
-                            { binding: 0, resource: sampler },
-                            { binding: 1, resource: externalTexture },
-                            { binding: 2, resource: { buffer: uniformBuffers[i] } },
-                          ],
-                        });
-                        renderPass.setBindGroup(0, bindGroup);
-                        renderPass.draw(6);
-                      } catch (_) {}
-                    }
-                  }
-
-                  renderPass.end();
-                  device.queue.submit([commandEncoder.finish()]);
-                } catch (renderErr) {
-                  console.warn('[UnifiedVideoGrid] WebGPU render pass error:', renderErr);
-                }
-
-                rafId = requestAnimationFrame(renderWebGPU);
-              };
-
-              rafId = requestAnimationFrame(renderWebGPU);
-              return;
+          try {
+            ctx.drawImage(frame, x, y, tileW, tileH);
+            if (stream.lastPresentedTime > 0) {
+              stream.lastDeltaMs = now - stream.lastPresentedTime;
             }
+            stream.lastPresentedTime = now;
+            if (!stream.isConnected) {
+              stream.connectedSince = now;
+            }
+            stream.isConnected = true;
+            stream.frameCount++;
+
+            const ph = placeholdersRef.current.get(stream.streamId);
+            if (ph && ph.style.display !== 'none') {
+              ph.style.display = 'none';
+            }
+          } catch (err) {
+            console.warn(`[Unified Stream ${stream.streamId}] drawImage error:`, err);
+          } finally {
+            frame.close();
           }
-        } catch (webgpuErr) {
-          console.warn('[UnifiedVideoGrid] WebGPU initialization failed, falling back to 2D single canvas:', webgpuErr);
         }
       }
 
-      // 2D Canvas Hardware Fallback (Single Canvas Architecture)
-      console.log('[UnifiedVideoGrid] Initializing Single-Canvas 2D hardware-accelerated pipeline');
-      const ctx2d = canvas?.getContext('2d', { alpha: false });
-      if (!ctx2d) return;
-      ctx2d.imageSmoothingEnabled = false;
+      rafId = requestAnimationFrame(renderLoop);
+    };
 
-      const render2D = () => {
-        if (isDestroyed) return;
-        const now = performance.now();
-        const tileW = canvas.width / cols;
-        const tileH = canvas.height / rows;
-
-        for (let i = 0; i < streamCount; i++) {
-          const stream = streams[i];
-          const frame = stream.pendingFrame;
-          if (frame) {
-            stream.pendingFrame = null;
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            const x = col * tileW;
-            const y = row * tileH;
-
-            try {
-              ctx2d.drawImage(frame, x, y, tileW, tileH);
-              if (stream.lastPresentedTime > 0) {
-                stream.lastDeltaMs = now - stream.lastPresentedTime;
-              }
-              stream.lastPresentedTime = now;
-              if (!stream.isConnected) {
-                stream.connectedSince = now;
-              }
-              stream.isConnected = true;
-              stream.frameCount++;
-              if (stream.placeholder && stream.placeholder.style.display !== 'none') {
-                stream.placeholder.style.display = 'none';
-              }
-            } catch (err) {
-              console.warn(`[Unified Stream ${stream.streamId}] 2D drawImage error:`, err);
-            } finally {
-              frame.close();
-            }
-          }
-        }
-
-        rafId = requestAnimationFrame(render2D);
-      };
-
-      rafId = requestAnimationFrame(render2D);
-    }
-
-    startRenderPipeline();
+    rafId = requestAnimationFrame(renderLoop);
 
     return () => {
       isDestroyed = true;
@@ -538,10 +371,6 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
         if (stream.pendingFrame) {
           stream.pendingFrame.close();
           stream.pendingFrame = null;
-        }
-        if (stream.currentFrame) {
-          stream.currentFrame.close();
-          stream.currentFrame = null;
         }
         playerRefs.current.delete(stream.streamId);
       });
@@ -565,7 +394,8 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
             <div className="player-overlay">
               <span
                 ref={(el) => {
-                  if (streamsRef.current[id]) streamsRef.current[id].statusDot = el;
+                  if (el) statusDotsRef.current.set(id, el);
+                  else statusDotsRef.current.delete(id);
                 }}
                 className="status-dot waiting"
               />
@@ -578,7 +408,8 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
               </span>
               <span
                 ref={(el) => {
-                  if (streamsRef.current[id]) streamsRef.current[id].fpsBadge = el;
+                  if (el) fpsBadgesRef.current.set(id, el);
+                  else fpsBadgesRef.current.delete(id);
                 }}
                 className="fps-badge warning"
               >
@@ -587,7 +418,8 @@ export const UnifiedVideoGrid: React.FC<UnifiedVideoGridProps> = ({ streamCount,
             </div>
             <div
               ref={(el) => {
-                if (streamsRef.current[id]) streamsRef.current[id].placeholder = el;
+                if (el) placeholdersRef.current.set(id, el);
+                else placeholdersRef.current.delete(id);
               }}
               className="waiting-placeholder"
             >
