@@ -100,9 +100,9 @@ export function applyChromiumFlags(): void {
     app.commandLine.appendSwitch('enable-zero-copy');
     app.commandLine.appendSwitch('enable-accelerated-video-decode');
     app.commandLine.appendSwitch('disable-frame-rate-limit');
-    app.commandLine.appendSwitch('disable-gpu-vsync');
+    app.commandLine.appendSwitch('enable-unsafe-webgpu');
     app.commandLine.appendSwitch('use-angle', 'd3d11');
-    app.commandLine.appendSwitch('enable-features', 'WebCodecs,D3D11VideoDecoder,CanvasOopRasterization');
-    console.log('[Platform] Windows: D3D11 hardware decode');
+    app.commandLine.appendSwitch('enable-features', 'WebCodecs,D3D11VideoDecoder,CanvasOopRasterization,WebGPU');
+    console.log('[Platform] Windows: D3D11 hardware decode + WebGPU enabled');
   }
 }

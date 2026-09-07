@@ -1,5 +1,6 @@
 import React from 'react';
 import { VideoPlayer, VideoPlayerRef } from './VideoPlayer';
+import { UnifiedVideoGrid } from './UnifiedVideoGrid';
 
 interface VideoGridProps {
   streamCount: number;
@@ -8,6 +9,21 @@ interface VideoGridProps {
 }
 
 export const VideoGrid: React.FC<VideoGridProps> = ({ streamCount, wsPort, playerRefs }) => {
+  const params = new URLSearchParams(window.location.search);
+  const rendererMode = params.get('renderer')
+    || (window as any).electronBenchmark?.renderer
+    || 'decoupled';
+
+  if (rendererMode === 'unified' || rendererMode === 'webgpu') {
+    return (
+      <UnifiedVideoGrid
+        streamCount={streamCount}
+        wsPort={wsPort}
+        playerRefs={playerRefs}
+      />
+    );
+  }
+
   const streamIndices = Array.from({ length: streamCount }, (_, i) => i);
 
   // Determine grid class based on stream count

@@ -277,3 +277,43 @@ body {
   color: #64748b;
   font-size: 11px;
 }
+
+/* Single Fullscreen Canvas Grid (Fix 3: WebGPU / Single Canvas) */
+.unified-grid-container {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: #06090e;
+}
+
+.unified-grid-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.unified-overlay-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.unified-tile-overlay {
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+

@@ -41,6 +41,8 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
   const lastDeltaMsRef = useRef<number>(0);
   const isConnectedRef = useRef<boolean>(false);
   const connectedSinceRef = useRef<number>(0);
+  const pendingFrameRef = useRef<VideoFrame | null>(null);
+  const rafIdRef = useRef<number | null>(null);
   const hasConfiguredRef = useRef<boolean>(false);
   const currentCodecRef = useRef<string>('');
   const decoderRef = useRef<VideoDecoder | null>(null);
@@ -102,7 +104,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
     const canvas = canvasRef.current;
     if (!canvas) return;
     const isMac = isMacPlatform();
-    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
     ctx.imageSmoothingEnabled = false;
 
@@ -144,55 +146,78 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
       return null;
     };
 
+    const onDecodedFrame = (videoFrame: VideoFrame) => {
+      if (isDestroyed) {
+        videoFrame.close();
+        return;
+      }
+
+      decodedCountRef.current++;
+
+      // Effective FPS: Presentation Timestamp (PTS) uniqueness check
+      const curPts = videoFrame.timestamp;
+      if (lastPtsRef.current !== null && curPts === lastPtsRef.current) {
+        videoFrame.close();
+        return;
+      }
+      lastPtsRef.current = curPts;
+
+      // Decouple: Hold only the latest frame. If an unpresented frame is already queued, close it.
+      if (pendingFrameRef.current) {
+        pendingFrameRef.current.close();
+      }
+      pendingFrameRef.current = videoFrame;
+    };
+
+    const renderLoop = () => {
+      if (isDestroyed) return;
+
+      const frame = pendingFrameRef.current;
+      if (frame) {
+        pendingFrameRef.current = null;
+
+        const targetW = presentSizeRef.current.width > 0 ? presentSizeRef.current.width : (canvas.clientWidth || 320);
+        const targetH = presentSizeRef.current.height > 0 ? presentSizeRef.current.height : (canvas.clientHeight || 180);
+
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+          canvas.width = targetW;
+          canvas.height = targetH;
+          ctx.imageSmoothingEnabled = false;
+        }
+
+        try {
+          ctx.drawImage(frame, 0, 0, targetW, targetH);
+          const now = performance.now();
+          if (lastPresentedTimeRef.current > 0) {
+            lastDeltaMsRef.current = now - lastPresentedTimeRef.current;
+          }
+          lastPresentedTimeRef.current = now;
+          if (!isConnectedRef.current) {
+            connectedSinceRef.current = now;
+          }
+          isConnectedRef.current = true;
+          frameCountRef.current++;
+        } catch (err) {
+          console.warn(`[Stream ${streamId}] drawImage error:`, err);
+        } finally {
+          // Crucial: immediately close frame to prevent memory accumulation
+          frame.close();
+        }
+
+        if (placeholderRef.current && placeholderRef.current.style.display !== 'none') {
+          placeholderRef.current.style.display = 'none';
+        }
+      }
+
+      rafIdRef.current = requestAnimationFrame(renderLoop);
+    };
+
+    rafIdRef.current = requestAnimationFrame(renderLoop);
+
     const createDecoder = (): VideoDecoder | null => {
       try {
         return new VideoDecoder({
-          output: (videoFrame: VideoFrame) => {
-            if (isDestroyed) {
-              videoFrame.close();
-              return;
-            }
-
-            decodedCountRef.current++;
-
-            // Effective FPS: Presentation Timestamp (PTS) uniqueness check
-            const curPts = videoFrame.timestamp;
-            if (lastPtsRef.current !== null && curPts === lastPtsRef.current) {
-              videoFrame.close();
-              return;
-            }
-            lastPtsRef.current = curPts;
-
-            // Frame pacing inter-frame delta calculation (tn - tn-1)
-            const now = performance.now();
-            if (lastPresentedTimeRef.current > 0) {
-              lastDeltaMsRef.current = now - lastPresentedTimeRef.current;
-            }
-            lastPresentedTimeRef.current = now;
-            if (!isConnectedRef.current) {
-              connectedSinceRef.current = now;
-            }
-            isConnectedRef.current = true;
-
-            const targetW = presentSizeRef.current.width > 0 ? presentSizeRef.current.width : (canvas.clientWidth || 320);
-            const targetH = presentSizeRef.current.height > 0 ? presentSizeRef.current.height : (canvas.clientHeight || 180);
-
-            if (canvas.width !== targetW || canvas.height !== targetH) {
-              canvas.width = targetW;
-              canvas.height = targetH;
-              ctx.imageSmoothingEnabled = false;
-            }
-
-            ctx.drawImage(videoFrame, 0, 0, targetW, targetH);
-
-            // Crucial: immediately close frame to prevent memory accumulation
-            videoFrame.close();
-            frameCountRef.current++;
-
-            if (placeholderRef.current && placeholderRef.current.style.display !== 'none') {
-              placeholderRef.current.style.display = 'none';
-            }
-          },
+          output: onDecodedFrame,
           error: (err) => {
             console.warn(`[Stream ${streamId}] VideoDecoder error:`, (err as any)?.name, (err as any)?.message || err);
             hasConfiguredRef.current = false;
@@ -294,6 +319,14 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
 
     return () => {
       isDestroyed = true;
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      if (pendingFrameRef.current) {
+        pendingFrameRef.current.close();
+        pendingFrameRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;

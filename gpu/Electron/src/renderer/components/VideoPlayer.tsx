@@ -43,7 +43,8 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
   const lastDeltaMsRef = useRef<number>(0);
   const isConnectedRef = useRef<boolean>(false);
   const connectedSinceRef = useRef<number>(0);
-  const pendingFramesRef = useRef<number>(0);
+  const pendingFrameRef = useRef<VideoFrame | null>(null);
+  const rafIdRef = useRef<number | null>(null);
   const hasConfiguredRef = useRef<boolean>(false);
   const currentCodecRef = useRef<string>('');
   const decoderRef = useRef<VideoDecoder | null>(null);
@@ -112,7 +113,7 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
 
     let isDestroyed = false;
 
-    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) {
       console.error(`[Stream ${streamId}] Failed to acquire 2D context`);
       return;
@@ -171,41 +172,60 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
       }
       lastPtsRef.current = curPts;
 
-      const targetW = presentSizeRef.current.width > 0 ? presentSizeRef.current.width : videoFrame.displayWidth;
-      const targetH = presentSizeRef.current.height > 0 ? presentSizeRef.current.height : videoFrame.displayHeight;
-
-      if (canvas.width !== targetW || canvas.height !== targetH) {
-        canvas.width = targetW;
-        canvas.height = targetH;
-        if (ctxRef.current) {
-          ctxRef.current.imageSmoothingEnabled = false;
-        }
+      // Decouple: Hold only the latest frame. If an unpresented frame is already queued, close it.
+      if (pendingFrameRef.current) {
+        pendingFrameRef.current.close();
       }
-
-      try {
-        if (ctxRef.current) {
-          ctxRef.current.drawImage(videoFrame, 0, 0, targetW, targetH);
-          const now = performance.now();
-          if (lastPresentedTimeRef.current > 0) {
-            lastDeltaMsRef.current = now - lastPresentedTimeRef.current;
-          }
-          lastPresentedTimeRef.current = now;
-          if (!isConnectedRef.current) {
-            connectedSinceRef.current = now;
-          }
-          isConnectedRef.current = true;
-          frameCountRef.current++;
-        }
-      } catch (err) {
-        console.warn(`[Stream ${streamId}] drawImage error:`, err);
-      } finally {
-        videoFrame.close();
-      }
-
-      if (placeholderRef.current && placeholderRef.current.style.display !== 'none') {
-        placeholderRef.current.style.display = 'none';
-      }
+      pendingFrameRef.current = videoFrame;
     };
+
+    const renderLoop = () => {
+      if (isDestroyed) return;
+
+      const frame = pendingFrameRef.current;
+      if (frame) {
+        pendingFrameRef.current = null;
+
+        const targetW = presentSizeRef.current.width > 0 ? presentSizeRef.current.width : frame.displayWidth;
+        const targetH = presentSizeRef.current.height > 0 ? presentSizeRef.current.height : frame.displayHeight;
+
+        if (canvas.width !== targetW || canvas.height !== targetH) {
+          canvas.width = targetW;
+          canvas.height = targetH;
+          if (ctxRef.current) {
+            ctxRef.current.imageSmoothingEnabled = false;
+          }
+        }
+
+        try {
+          if (ctxRef.current) {
+            ctxRef.current.drawImage(frame, 0, 0, targetW, targetH);
+            const now = performance.now();
+            if (lastPresentedTimeRef.current > 0) {
+              lastDeltaMsRef.current = now - lastPresentedTimeRef.current;
+            }
+            lastPresentedTimeRef.current = now;
+            if (!isConnectedRef.current) {
+              connectedSinceRef.current = now;
+            }
+            isConnectedRef.current = true;
+            frameCountRef.current++;
+          }
+        } catch (err) {
+          console.warn(`[Stream ${streamId}] drawImage error:`, err);
+        } finally {
+          frame.close();
+        }
+
+        if (placeholderRef.current && placeholderRef.current.style.display !== 'none') {
+          placeholderRef.current.style.display = 'none';
+        }
+      }
+
+      rafIdRef.current = requestAnimationFrame(renderLoop);
+    };
+
+    rafIdRef.current = requestAnimationFrame(renderLoop);
 
     const createDecoder = (): VideoDecoder | null => {
       try {
@@ -333,6 +353,14 @@ export const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ strea
 
     return () => {
       isDestroyed = true;
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      if (pendingFrameRef.current) {
+        pendingFrameRef.current.close();
+        pendingFrameRef.current = null;
+      }
       if (resizeObserver) {
         resizeObserver.disconnect();
       }

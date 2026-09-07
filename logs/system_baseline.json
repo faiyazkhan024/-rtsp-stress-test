@@ -1,24 +1,24 @@
 {
-  "recorded_at": "2026-09-06T17:14:42Z",
-  "idle_cpu_percent": 8.6,
+  "recorded_at": "2026-09-07T03:51:11Z",
+  "idle_cpu_percent": 8.2,
   "ram": {
     "total_mb": 15466.0,
-    "available_mb": 4777.4,
-    "used_mb": 10688.6,
-    "percent": 69.1
+    "available_mb": 5278.1,
+    "used_mb": 10187.9,
+    "percent": 65.9
   },
   "gpu": {
     "available": true,
     "name": "NVIDIA GeForce RTX 4060 Ti",
-    "temp_c": 37.0,
-    "vram_used_mb": 764.0,
-    "vram_free_mb": 7186.0,
+    "temp_c": 38.0,
+    "vram_used_mb": 813.0,
+    "vram_free_mb": 7137.0,
     "vram_total_mb": 8188.0,
     "decoder_percent": 0.0
   },
   "tolerances": {
-    "max_idle_cpu_percent": 12.6,
-    "max_gpu_temp_c": 41.0,
-    "max_vram_used_mb": 1014.0
+    "max_idle_cpu_percent": 12.2,
+    "max_gpu_temp_c": 42.0,
+    "max_vram_used_mb": 1063.0
   }
 }
